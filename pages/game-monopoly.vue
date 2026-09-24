@@ -1,13 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-const db=useSupabaseClient(), route=useRoute();
+const db=useSupabaseClient(), route=useRoute(), student=useCookie('currentStudent');
 const words=ref([]), owned=ref({}), turn=ref(0), question=ref(null), answer=ref(''), die=ref('—'), round=ref(1), done=ref(false), message=ref('載入題庫…');
 const players=ref([{name:'你',cash:1500,pos:0},{name:'電腦',cash:1500,pos:0}]);
+const startedAt=Date.now(), mistakes=ref(0), rightWords=ref([]), wrongWords=ref([]);
 const me=computed(()=>players.value[turn.value]), owner=id=>owned.value[id]??-1, price=id=>100+Math.floor(words.value.findIndex(w=>w.id===id)/4)*25;
 const shuffle=a=>[...a].sort(()=>Math.random()-.5);
 function ask(w){question.value={w,type:Math.random()<.5?'meaning':'spell',choices:shuffle([w,...shuffle(words.value.filter(x=>x.id!==w.id)).slice(0,3)])};answer.value='';}
-function endTurn(){question.value=null;turn.value=1-turn.value;if(turn.value===0)round.value++;if(round.value>20||players.value.some(p=>p.cash<=0))done.value=true;}
-function respond(ok){const w=question.value.w,p=me.value;if(ok&&p.cash>=price(w.id)){owned.value[w.id]=turn.value;p.cash-=price(w.id);message.value=p.name+' 答對並買下 '+w.en_us+'！';}else message.value=ok?'答對了但現金不足。':'答錯了，答案：'+w.en_us+'＝'+w.zh_tw;endTurn();}
+async function endTurn(){question.value=null;turn.value=1-turn.value;if(turn.value===0)round.value++;if(round.value>20||players.value.some(p=>p.cash<=0)){done.value=true;if(student.value?.id){await db.from('game_records').insert([{student_id:student.value.id,game_type:'單字大富翁',version:route.query.version||null,volume:route.query.volume||null,unit_played:route.query.unit||null,score:players.value[0].cash,time_taken_seconds:Math.floor((Date.now()-startedAt)/1000),mistakes:mistakes.value,wrong_words:[...new Set(wrongWords.value)].join(', '),correct_words:[...new Set(rightWords.value)].join(', ')}]);}}}
+function respond(ok){const w=question.value.w,p=me.value;if(turn.value===0){if(ok)rightWords.value.push(w.en_us);else{mistakes.value++;wrongWords.value.push(w.en_us);}}if(ok&&p.cash>=price(w.id)){owned.value[w.id]=turn.value;p.cash-=price(w.id);message.value=p.name+' 答對並買下 '+w.en_us+'！';}else message.value=ok?'答對了但現金不足。':'答錯了，答案：'+w.en_us+'＝'+w.zh_tw;endTurn();}
 function submit(){respond(question.value.type==='meaning'?answer.value===question.value.w.en_us:answer.value.trim().toLowerCase()===question.value.w.en_us.trim().toLowerCase());}
 function play(i){if(turn.value!==i||question.value||done.value)return;const n=2+Math.floor(Math.random()*11),p=players.value[i],old=p.pos;die.value=String(n);p.pos=(p.pos+n)%words.value.length;if(p.pos<old)p.cash+=200;const w=words.value[p.pos],o=owner(w.id);if(o>=0){if(o!==i){p.cash-=30;players.value[o].cash+=30;message.value=p.name+' 支付 $30 租金。';}endTurn();return;}question.value={w,type:Math.random()<.5?'meaning':'spell',choices:shuffle([w,...shuffle(words.value.filter(x=>x.id!==w.id)).slice(0,3)])};answer.value='';if(i===1)setTimeout(()=>{if(question.value)respond(Math.random()<.7)},800);}
 onMounted(async()=>{let q=db.from('vocabularies').select('id,en_us,zh_tw');for(const k of ['version','volume','unit'])if(route.query[k])q=q.eq(k,route.query[k]);const {data,error}=await q.limit(500);words.value=(data||[]).filter(w=>w.en_us&&w.zh_tw);message.value=error?'題庫載入失敗：'+error.message:words.value.length?'擲骰前進，答對買地、經過起點領 $200。':'找不到單字，請返回選擇單元。';});
