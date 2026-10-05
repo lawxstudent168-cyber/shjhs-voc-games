@@ -27,6 +27,8 @@ const gameDict = {
   'isekaiFarm': { name: '✧ 單字異世界悠閒農莊', path: '/game-isekai-farm', class: 'monopoly-btn' },
   'alchemyAtelier': { name: '⚗️ 單字鍊金工房', path: '/game-alchemy-atelier', class: 'monopoly-btn' },
   'chess': { name: '♔ 單字西洋棋', path: '/game-chess', class: 'monopoly-btn' },
+  'go': { name: '⚫ 單字圍棋', path: '/game-go', class: 'monopoly-btn' },
+  'xiangqi': { name: '帥 單字象棋', path: '/game-xiangqi', class: 'monopoly-btn' },
   'railwayTour': { name: '🚂 單字鐵路旅遊高手', path: '/game-railway-tour', class: 'monopoly-btn' },
   'verbMonopoly': { name: '🏘️ 動詞變化大富翁', path: '/game-verb-monopoly', class: 'monopoly-btn' },
   'move': { name: '🔠 單字神移動', path: '/game-move', class: '' },
@@ -88,7 +90,7 @@ const noUnitGames = ['speakno1', 'speakno2', 'speakno3', 'KKphonetics', 'Phonics
 const isNoUnitGame = computed(() => noUnitGames.includes(selectedGameType.value));
 
 const defaultCategories = [
-  { id: 'c1', name: '🕹️ 經典單字遊戲', games: ['monopoly', 'happyFarm', 'isekaiFarm', 'alchemyAtelier', 'railwayTour', 'chess', 'match', 'move', 'choice', 'fill', 'sentence', 'listen', 'puzzle', 'cross', 'review', 'picture2meaning', 'ninja'] },
+  { id: 'c1', name: '🕹️ 經典單字遊戲', games: ['monopoly', 'happyFarm', 'isekaiFarm', 'alchemyAtelier', 'railwayTour', 'chess', 'go', 'xiangqi', 'match', 'move', 'choice', 'fill', 'sentence', 'listen', 'puzzle', 'cross', 'review', 'picture2meaning', 'ninja'] },
   { id: 'c2', name: '🏆 體感與趣味挑戰', games: ['shake2shuffle', 'tilt2sort', 'gravitymaze', 'swing2cast', 'ARsniper', 'GPSmap', 'vocshooting', 'noropejump'] },
   { id: 'c3', name: '👾 懷舊街機遊樂場', games: ['tetris', 'pinball', 'angrybirds', 'solitaire', 'pikavolley', 'pacman', 'minesweeper', 'sudoku'] },
   { id: 'c4', name: '⚔️ 雙人對戰與領域牌組', games: ['monopolyDual', 'pikavolleyDual', 'angrybirdsDual', 'battle', 'tenchi', 'tarot21', 'tarotAlch', 'tarotUno', 'tarotUno1', 'tarot21solo', 'tarotAlch1'] },
@@ -167,8 +169,10 @@ onMounted(async () => {
       if (!hasAlchemyAtelier && dynamicCategories.value.length > 0) dynamicCategories.value[0].games.push('alchemyAtelier');
       const hasRailwayTour = dynamicCategories.value.some(cat => cat.games.includes('railwayTour'));
       if (!hasRailwayTour && dynamicCategories.value.length > 0) dynamicCategories.value[0].games.push('railwayTour');
-      if (!dynamicCategories.value.some(cat => cat.games.includes('chess')) && dynamicCategories.value.length) {
-        dynamicCategories.value[0].games.push('chess');
+      for (const gameId of ['chess', 'go', 'xiangqi']) {
+        if (!dynamicCategories.value.some(cat => cat.games.includes(gameId)) && dynamicCategories.value.length) {
+          dynamicCategories.value[0].games.push(gameId);
+        }
       }
       const hasShooting = dynamicCategories.value.some(cat => cat.games.includes('vocshooting'));
       if (!hasShooting && dynamicCategories.value.length > 0) {
