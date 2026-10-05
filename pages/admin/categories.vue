@@ -10,6 +10,7 @@ const allGames = [
   { id: 'happyFarm', name: '🌻 單字開心農場' },
   { id: 'isekaiFarm', name: '✧ 單字異世界悠閒農莊' },
   { id: 'alchemyAtelier', name: '⚗️ 單字鍊金工房' },
+  { id: 'chess', name: '♔ 單字西洋棋' },
   { id: 'railwayTour', name: '🚂 單字鐵路旅遊高手' },
   { id: 'match', name: '🟦 方塊消消樂' },
   { id: 'move', name: '🔠 單字神移動' },
@@ -74,6 +75,9 @@ onMounted(async () => {
     }
     if (categories.value.length && !categories.value.some(cat => cat.games?.includes('isekaiFarm'))) {
       categories.value[0].games = [...(categories.value[0].games || []), 'isekaiFarm'];
+    }
+    if (categories.value.length && !categories.value.some(cat => cat.games?.includes('chess'))) {
+      categories.value[0].games = [...(categories.value[0].games || []), 'chess'];
     }
     if (categories.value.length && !categories.value.some(cat => cat.games?.includes('alchemyAtelier'))) {
       categories.value[0].games = [...(categories.value[0].games || []), 'alchemyAtelier'];
