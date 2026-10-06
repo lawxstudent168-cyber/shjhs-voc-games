@@ -22,9 +22,10 @@ const soundEnabled = ref(true);
 const visitorStep = ref(0);
 const panel = ref('build');
 const quiz = ref(null);
+const pending = ref(null);
 const activeSeconds = ref(0);
 const lastQuestionAt = ref(0);
-const nextQuestionAfter = ref(35);
+const nextQuestionAfter = ref(35000);
 const photo = ref('');
 const fullPhoto = ref('');
 const photoCredit = ref('');
@@ -109,7 +110,8 @@ function selectTile(id) {
 }
 function requestAction(action) {
   if (quiz.value || loading.value || words.value.length < 4) return;
-  applyAction(action);
+  if (!lastQuestionAt.value || Date.now() - lastQuestionAt.value >= nextQuestionAfter.value) openQuiz(action);
+  else applyAction(action);
 }
 function applyAction(action) {
   if (!action) return;
@@ -130,14 +132,18 @@ function applyAction(action) {
     zoo.value.money += 700; zoo.value.grantUsed = true;
     notice.value = '保育教育補助 $700 已入帳；每座園區限領一次。'; persist();
   }
+  if (action.type === 'ticket') {
+    zoo.value.tickets = action.price;
+    notice.value = `門票已調整為 $${action.price}。`;
+    persist();
+  }
 }
-function openQuiz() {
+function openQuiz(action) {
   if (quiz.value || words.value.length < 4) return;
   const word = words.value[Math.floor(Math.random() * words.value.length)];
   const distractors = words.value.filter(item => item.en_us.toLowerCase() !== word.en_us.toLowerCase()).sort(() => Math.random() - .5).slice(0, 3);
   quiz.value = { word, choices: [word, ...distractors].sort(() => Math.random() - .5) };
-  lastQuestionAt.value = activeSeconds.value;
-  nextQuestionAfter.value = 30 + Math.floor(Math.random() * 11);
+  pending.value = action;
 }
 function answer(choice) {
   if (!quiz.value) return;
@@ -145,11 +151,18 @@ function answer(choice) {
   const correct = choice.trim().toLowerCase() === word.en_us.trim().toLowerCase();
   (correct ? zoo.value.correct : zoo.value.wrong).push(word.en_us);
   quiz.value = null;
-  if (correct) { zoo.value.money += 70; notice.value = `答對 ${word.en_us}！保育基金 +$70。`; }
-  else notice.value = `答錯了：「${word.zh_tw}」是 ${word.en_us}。`;
+  lastQuestionAt.value = Date.now();
+  nextQuestionAfter.value = (30 + Math.floor(Math.random() * 11)) * 1000;
+  if (correct) {
+    zoo.value.money += 70;
+    applyAction(pending.value);
+    notice.value = `答對 ${word.en_us}！保育基金 +$70；${notice.value}`;
+  }
+  else notice.value = `答錯了：「${word.zh_tw}」是 ${word.en_us}；本次操作沒有執行。`;
+  pending.value = null;
   persist();
 }
-function cancelQuiz() { quiz.value = null; notice.value = '已略過這次單字題。'; }
+function cancelQuiz() { quiz.value = null; pending.value = null; notice.value = '已取消這次操作；下次操作仍須答題。'; }
 function adopt(animal) {
   selectedAnimal.value = animal.id;
   if (!selected.value || selected.value.kind !== 'habitat' || selected.value.animalId) { notice.value = '請先在地圖選擇空的棲地。'; return; }
@@ -159,7 +172,7 @@ function adopt(animal) {
 }
 function care(kind) { requestAction({ type: 'care', id: selectedId.value, kind }); }
 function staff(kind) { requestAction({ type: 'staff', kind }); }
-function changeTicket(event) { zoo.value.tickets = Number(event.target.value); persist(); }
+function changeTicket(event) { requestAction({ type: 'ticket', price: Number(event.target.value) }); }
 function setAnimalArtStyle(style) {
   animalArtStyle.value = style;
   localStorage.setItem('shjhs-zoo-animal-art-style', style);
@@ -174,7 +187,7 @@ function newZoo() {
   if (name === null) return;
   zoo.value = createZoo(); zoo.value.name = name.trim().slice(0, 20) || '晨光動物園';
   zoo.value.recordId = crypto.randomUUID(); zoo.value.startedAt = Date.now();
-  selectedId.value = 3 + 3 * ZOO_WIDTH; selectedTool.value = 'inspect'; activeSeconds.value = 0; lastQuestionAt.value = 0; nextQuestionAfter.value = 30 + Math.floor(Math.random() * 11); lastDayAt = 0;
+  selectedId.value = 3 + 3 * ZOO_WIDTH; selectedTool.value = 'inspect'; activeSeconds.value = 0; lastQuestionAt.value = 0; nextQuestionAfter.value = 35000; lastDayAt = 0;
   notice.value = '新園區已開幕。從初始草原棲地領養第一隻動物吧！'; persist();
 }
 async function saveRecord() {
@@ -223,7 +236,6 @@ async function loadWiki(animal) {
 watch(() => chosenAnimal.value?.id, () => loadWiki(chosenAnimal.value), { immediate: true });
 onMounted(async () => {
   if (!student.value?.id) { await navigateTo('/'); return; }
-  nextQuestionAfter.value = 30 + Math.floor(Math.random() * 11);
   animalArtStyle.value = localStorage.getItem('shjhs-zoo-animal-art-style') === 'raised' ? 'raised' : 'classic';
   soundEnabled.value = localStorage.getItem('shjhs-zoo-animal-sound') !== 'off';
   if (!lesson.version || !lesson.volume || !lesson.unit) { loading.value = false; notice.value = '請先在首頁選擇課本、冊次與單元。'; return; }
@@ -248,7 +260,6 @@ onMounted(async () => {
     if (accumulated < 1000) return;
     const elapsed = Math.floor(accumulated / 1000);
     activeSeconds.value += elapsed; visitorStep.value += elapsed; accumulated %= 1000;
-    if (activeSeconds.value - lastQuestionAt.value >= nextQuestionAfter.value) { openQuiz(); return; }
     if (activeSeconds.value - lastDayAt >= 45) {
       lastDayAt = activeSeconds.value;
       const report = advanceZooDay(zoo.value);
@@ -264,7 +275,7 @@ watch(() => zoo.value.paused, persist);
 <template>
   <main class="zoo-page">
     <header class="zoo-header"><div><span class="eyebrow">VOCABULARY · ZOO BUILDER</span><h1>🦁 單字模擬動物園</h1><p>照顧動物、設計棲地，讓單字成為園區成長的力量</p></div><nav><NuxtLink to="/">← 首頁</NuxtLink><NuxtLink :to="historyLink">學習紀錄</NuxtLink><NuxtLink :to="leaderboardLink">英雄榜</NuxtLink></nav></header>
-    <div class="zoo-layout"><section class="zoo-board"><div class="topline"><div><strong>{{zoo.name}}</strong><span>第 {{zoo.day}} 天</span></div><div class="top-actions"><span class="quiz-clock">📚 下題約 {{Math.max(0,nextQuestionAfter-(activeSeconds-lastQuestionAt))}} 秒</span><button @click="zoo.paused=!zoo.paused">{{zoo.paused?'▶ 繼續':'Ⅱ 暫停'}}</button><button @click="saveRecord" :disabled="loading||saving">儲存成績</button><button @click="newZoo">新園區</button></div></div>
+    <div class="zoo-layout"><section class="zoo-board"><div class="topline"><div><strong>{{zoo.name}}</strong><span>第 {{zoo.day}} 天</span></div><div class="top-actions"><span class="quiz-clock">📚 操作時最多每 30–40 秒一題</span><button @click="zoo.paused=!zoo.paused">{{zoo.paused?'▶ 繼續':'Ⅱ 暫停'}}</button><button @click="saveRecord" :disabled="loading||saving">儲存成績</button><button @click="newZoo">新園區</button></div></div>
       <div class="stats"><span>💰 ${{zoo.money}}</span><span>🎟️ 今日 {{zoo.visitors}} 人</span><span>🚶 園內 {{visitorMarkers.length}} 組模擬遊客</span><span>❤️ 福祉 {{metrics.welfare}}%</span><span>😊 遊客滿意度 {{metrics.guestSatisfaction}}%</span><span>🌿 保育 {{zoo.conservation}}</span><span>⭐ {{score}} 分</span><span>📖 {{zoo.correct.length}} 對／{{zoo.wrong.length}} 錯</span></div>
       <div class="board-note">園區已擴大為 {{ZOO_WIDTH}} × {{ZOO_HEIGHT}} 格。地圖可捲動、縮放；入口在左側，步道要緊鄰棲地與設施。</div>
       <div class="map-controls"><span>{{ZOO_WIDTH}} × {{ZOO_HEIGHT}} 格 · {{Math.round(mapScale*100)}}%</span><button :disabled="mapScale<=.75" @click="mapScale=Math.max(.75,mapScale-.25)">－ 縮小</button><button :disabled="mapScale>=1.5" @click="mapScale=Math.min(1.5,mapScale+.25)">＋ 放大</button><button @click="mapScale=1">原尺寸</button><span class="map-option-label">動物圖案</span><button :class="{active:animalArtStyle==='classic'}" @click="setAnimalArtStyle('classic')">🐾 原版可愛</button><button :class="{active:animalArtStyle==='raised'}" @click="setAnimalArtStyle('raised')">🐾 立體版</button><button :class="{active:soundEnabled}" @click="toggleSound">{{soundEnabled?'🔊 叫聲開':'🔇 叫聲關'}}</button></div>
@@ -286,12 +297,12 @@ watch(() => zoo.value.paused, persist);
         <div v-else-if="selected.kind==='habitat'" class="detail-actions"><button @click="panel='animals'">🐾 查看可領養動物</button></div>
       </section>
       <div class="sidebar-body" v-if="panel==='build'"><h2>建造工具</h2><p>選擇工具後點園區空地；按「查看」可選取棲地與照護動物。</p><div v-for="group in groupedTools" :key="group.name" class="tool-section"><h3>{{group.name}}</h3><div class="tool-grid"><button v-for="tool in group.tools" :key="tool.id" :class="{active:selectedTool===tool.id}" @click="selectedTool=tool.id"><span>{{tool.icon}}</span><strong>{{tool.name}}</strong><small>{{tool.cost?`$${tool.cost}`:'選取'}}</small></button></div></div></div>
-      <div class="sidebar-body" v-else-if="panel==='animals'"><h2>動物圖鑑與領養</h2><p>先點選一塊空棲地，再選符合環境的動物；單字題每隔 30–40 秒有效遊玩時間出現。</p><div class="animal-list"><button v-for="animal in ZOO_ANIMALS" :key="animal.id" :class="{active:chosenAnimal?.id===animal.id}" @click="selectedAnimal=animal.id"><span>{{animal.icon}}</span><strong>{{animal.name}}<small>{{animal.en}}</small></strong><em>${{animal.cost}}</em></button></div><div v-if="chosenAnimal" class="wiki-card"><button v-if="photo&&!photoError" class="photo-preview" :aria-label="`放大檢視${chosenAnimal.name}完整照片`" @click="photoOpen=true"><img :src="photo" :alt="chosenAnimal.name" loading="lazy" @error="photoError=true"><span>點擊查看完整照片 ⤢</span></button><span v-else class="wiki-fallback">{{chosenAnimal.icon}}</span><h3>{{chosenAnimal.name}} · {{chosenAnimal.en}}</h3><p>{{chosenAnimal.fact}}</p><p class="wiki-extract" v-if="wikiText">{{wikiText}}</p><a :href="`https://en.wikipedia.org/wiki/${chosenAnimal.wiki}`" target="_blank" rel="noopener noreferrer">維基百科動物介紹 ↗</a><a v-if="photoCredit" :href="photoCredit" target="_blank" rel="noopener noreferrer">圖片來源與授權 ↗</a><button class="primary" :disabled="!selected||selected.kind!=='habitat'||Boolean(selected.animalId)||selected.biome!==chosenAnimal.biome||zoo.money<chosenAnimal.cost" @click="adopt(chosenAnimal)">領養 {{chosenAnimal.name}} · ${{chosenAnimal.cost}}</button><small>需要 {{zooBiome(chosenAnimal.biome)?.name}}棲地 · 每日飼料約 ${{Math.ceil(chosenAnimal.food/2)}}</small></div></div>
+      <div class="sidebar-body" v-else-if="panel==='animals'"><h2>動物圖鑑與領養</h2><p>先點選一塊空棲地，再選符合環境的動物；進行建設、領養等操作時才可能出題；答過一題後，30–40 秒內的操作不再出題。</p><div class="animal-list"><button v-for="animal in ZOO_ANIMALS" :key="animal.id" :class="{active:chosenAnimal?.id===animal.id}" @click="selectedAnimal=animal.id"><span>{{animal.icon}}</span><strong>{{animal.name}}<small>{{animal.en}}</small></strong><em>${{animal.cost}}</em></button></div><div v-if="chosenAnimal" class="wiki-card"><button v-if="photo&&!photoError" class="photo-preview" :aria-label="`放大檢視${chosenAnimal.name}完整照片`" @click="photoOpen=true"><img :src="photo" :alt="chosenAnimal.name" loading="lazy" @error="photoError=true"><span>點擊查看完整照片 ⤢</span></button><span v-else class="wiki-fallback">{{chosenAnimal.icon}}</span><h3>{{chosenAnimal.name}} · {{chosenAnimal.en}}</h3><p>{{chosenAnimal.fact}}</p><p class="wiki-extract" v-if="wikiText">{{wikiText}}</p><a :href="`https://en.wikipedia.org/wiki/${chosenAnimal.wiki}`" target="_blank" rel="noopener noreferrer">維基百科動物介紹 ↗</a><a v-if="photoCredit" :href="photoCredit" target="_blank" rel="noopener noreferrer">圖片來源與授權 ↗</a><button class="primary" :disabled="!selected||selected.kind!=='habitat'||Boolean(selected.animalId)||selected.biome!==chosenAnimal.biome||zoo.money<chosenAnimal.cost" @click="adopt(chosenAnimal)">領養 {{chosenAnimal.name}} · ${{chosenAnimal.cost}}</button><small>需要 {{zooBiome(chosenAnimal.biome)?.name}}棲地 · 每日飼料約 ${{Math.ceil(chosenAnimal.food/2)}}</small></div></div>
       <div class="sidebar-body" v-else-if="panel==='manage'"><h2>每日經營</h2><div class="report-row"><span>已連通動物／全部</span><b>{{metrics.active.length}}／{{metrics.exhibits.length}}</b></div><div class="report-row"><span>物種數</span><b>{{metrics.diversity}}</b></div><div class="report-row"><span>園區聲望</span><b>{{zoo.reputation}}／100</b></div><div class="report-row"><span>昨日收入</span><b>${{zoo.lastReport?.income||0}}</b></div><div class="report-row"><span>昨日支出</span><b>${{zoo.lastReport?.expense||0}}</b></div><div class="report-row"><span>連通的服務設施</span><b>{{activeGuestFacilities}} 座</b></div><label class="ticket">門票 ${{zoo.tickets}}<input type="range" min="5" max="30" :value="zoo.tickets" @change="changeTicket"></label><p>票價太高會減少遊客；餐飲攤、洗手間與解說牌會改善收益或吸引力。</p><h2>工作人員</h2><div class="report-row"><span>保育員 {{zoo.keepers}} 人</span><b>日薪 $65／人</b></div><div class="report-row"><span>獸醫 {{zoo.vets}} 人</span><b>日薪 $90／人</b></div><div class="hire"><button @click="staff('keeper')" :disabled="zoo.money<180">聘保育員 $180</button><button @click="staff('vet')" :disabled="zoo.money<260">聘獸醫 $260</button></div><p>每位保育員每天自動照顧最多三個棲地；獸醫提供專業照護職位，動物健康過低時可由其處理。</p><button v-if="zoo.money<200&&!zoo.grantUsed" class="primary" @click="requestAction({type:'grant'})">申請保育補助 $700</button><h2>園區日誌</h2><ul><li v-for="(entry,i) in zoo.events" :key="i">{{entry}}</li></ul></div>
-      <div class="sidebar-body" v-else><h2>遊玩方法</h2><p>初始棲地可直接領養草原動物。新棲地、餐飲攤、洗手間與解說牌要建在空地，並以步道連到入口。地圖上有顏色的棲地是動物的家；未連通的棲地不會帶來遊客。地圖上的小人代表遊客群，會沿著已連通的步道走向動物與服務設施。</p><p>每 45 秒有效遊玩時間推進一天；暫停、答題、檢視大圖或切換分頁不計時。動物每天需要飼料與清潔，雇保育員可自動照顧。遊客支付門票；紀念品店、遊客中心、急救站、兒童遊戲區、觀景台、保育教室及其他設施有不同效果與每日成本。可在地圖上選擇動物圖案風格，點擊動物棲地聽模擬叫聲。</p><p>每累積 30–40 秒有效遊玩時間會自動出現一題英文單字；答對可獲得保育基金。建設、領養與照護不再每次都問。分數來自答對單字、累積遊客和保育點數。園區保存在本裝置，成績另存入學生紀錄。</p><p>玩法參考《Planet Zoo》與《Zoo Tycoon》的動物福祉、棲地及遊客經營概念；本遊戲的地圖、美術與規則為獨立設計。動物照片及簡介由維基百科即時載入，未載入時改用圖示與本地文字；點圖鑑連結查看原文與圖片授權。</p></div>
+      <div class="sidebar-body" v-else><h2>遊玩方法</h2><p>初始棲地可直接領養草原動物。新棲地、餐飲攤、洗手間與解說牌要建在空地，並以步道連到入口。地圖上有顏色的棲地是動物的家；未連通的棲地不會帶來遊客。地圖上的小人代表遊客群，會沿著已連通的步道走向動物與服務設施。</p><p>每 45 秒有效遊玩時間推進一天；暫停、答題、檢視大圖或切換分頁不計時。動物每天需要飼料與清潔，雇保育員可自動照顧。遊客支付門票；紀念品店、遊客中心、急救站、兒童遊戲區、觀景台、保育教室及其他設施有不同效果與每日成本。可在地圖上選擇動物圖案風格，點擊動物棲地聽模擬叫聲。</p><p>進行建設、領養、照護等操作時才可能出英文題：首次操作需答題，答過後 30–40 秒內的操作免答，期限過後要等下一次操作才會出題。答對才會執行該次操作；沒有操作就不會出題。分數來自答對單字、累積遊客和保育點數。園區保存在本裝置，成績另存入學生紀錄。</p><p>玩法參考《Planet Zoo》與《Zoo Tycoon》的動物福祉、棲地及遊客經營概念；本遊戲的地圖、美術與規則為獨立設計。動物照片及簡介由維基百科即時載入，未載入時改用圖示與本地文字；點圖鑑連結查看原文與圖片授權。</p></div>
     </aside></div>
     <div v-if="photoOpen&&photo&&!photoError" class="photo-overlay" role="dialog" aria-modal="true" :aria-label="`${chosenAnimal?.name}完整照片`" @click.self="photoOpen=false"><div class="photo-dialog"><button class="photo-close" aria-label="關閉照片" @click="photoOpen=false">✕</button><img :src="fullPhoto||photo" :alt="chosenAnimal?.name" @error="fullPhoto=''" ><div><strong>{{chosenAnimal?.name}} · {{chosenAnimal?.en}}</strong><a v-if="photoCredit" :href="photoCredit" target="_blank" rel="noopener noreferrer">查看維基共享資源的攝影者與授權 ↗</a></div></div></div>
-    <div v-if="quiz" class="quiz-overlay"><section class="quiz-card" role="dialog" aria-modal="true" aria-label="單字挑戰"><span class="eyebrow">ZOO WORD CHALLENGE</span><h2>{{quiz.word.zh_tw}}</h2><p>選出正確英文，可獲得保育基金。</p><div class="choices"><button v-for="(choice,i) in quiz.choices" :key="i" @click="answer(choice.en_us)">{{choice.en_us}}</button></div><button class="cancel" @click="cancelQuiz">取消</button></section></div>
+    <div v-if="quiz" class="quiz-overlay"><section class="quiz-card" role="dialog" aria-modal="true" aria-label="單字挑戰"><span class="eyebrow">ZOO WORD CHALLENGE</span><h2>{{quiz.word.zh_tw}}</h2><p>選出正確英文，完成這次操作並獲得保育基金 $70。</p><div class="choices"><button v-for="(choice,i) in quiz.choices" :key="i" @click="answer(choice.en_us)">{{choice.en_us}}</button></div><button class="cancel" @click="cancelQuiz">取消操作</button></section></div>
   </main>
 </template>
 
