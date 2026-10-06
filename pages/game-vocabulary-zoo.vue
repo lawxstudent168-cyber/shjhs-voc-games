@@ -29,6 +29,25 @@ const photoError = ref(false);
 const photoOpen = ref(false);
 const metrics = computed(() => zooMetrics(zoo.value));
 const selected = computed(() => zoo.value.tiles[selectedId.value]);
+const selectedAnimalData = computed(() => zooAnimal(selected.value?.animalId));
+const selectedConnected = computed(() => {
+  const tile = selected.value;
+  if (!tile) return false;
+  if (tile.kind === 'path') return metrics.value.paths.has(tile.id);
+  return zoo.value.tiles.some(path => path.kind === 'path' && metrics.value.paths.has(path.id) && Math.abs(path.x - tile.x) + Math.abs(path.y - tile.y) === 1);
+});
+const selectedDescription = computed(() => {
+  const tile = selected.value;
+  if (!tile?.kind) return '尚未建設，可選擇建造工具使用這塊地。';
+  if (tile.kind === 'habitat') return selectedAnimalData.value?.fact || '這塊棲地尚無動物，可到動物圖鑑領養適合的物種。';
+  return {
+    path: '步道連結園區入口、棲地與服務設施。',
+    shop: '餐飲攤接上步道後，每位遊客可增加約 $2.5 消費；每天另有維護費。',
+    toilet: '洗手間接上步道後，可避免因缺少洗手間而減少遊客；每天另有維護費。',
+    education: '解說牌接上步道後，可增加來客吸引力與每天的保育點數。',
+    tree: '景觀樹讓園區的地圖更有綠意。'
+  }[tile.kind] || '園區設施。';
+});
 const chosenAnimal = computed(() => zooAnimal(selectedAnimal.value));
 const score = computed(() => zoo.value.correct.length * 10 + Math.min(500, zoo.value.totalVisitors) + zoo.value.conservation * 2);
 const historyLink = computed(() => ({ path: '/history', query: { game: GAME_TYPE } }));
@@ -58,6 +77,11 @@ function selectTile(id) {
   selectedId.value = id;
   const tile = zoo.value.tiles[id];
   if (tile.animalId) selectedAnimal.value = tile.animalId;
+  if (tile.kind && selectedTool.value !== 'remove') {
+    selectedTool.value = 'inspect';
+    panel.value = tile.animalId ? 'animals' : 'build';
+    return;
+  }
   if (selectedTool.value === 'inspect') { panel.value = tile.animalId ? 'animals' : 'build'; return; }
   const tool = zooTool(selectedTool.value);
   if (!tool) return;
@@ -219,12 +243,25 @@ watch(() => zoo.value.paused, persist);
       <div class="stats"><span>💰 ${{zoo.money}}</span><span>🎟️ 今日 {{zoo.visitors}} 人</span><span>❤️ 福祉 {{metrics.welfare}}%</span><span>🌿 保育 {{zoo.conservation}}</span><span>⭐ {{score}} 分</span><span>📖 {{zoo.correct.length}} 對／{{zoo.wrong.length}} 錯</span></div>
       <div class="board-note">園區已擴大為 {{ZOO_WIDTH}} × {{ZOO_HEIGHT}} 格。地圖可捲動、縮放；入口在左側，步道要緊鄰棲地與設施。</div>
       <div class="map-controls"><span>{{ZOO_WIDTH}} × {{ZOO_HEIGHT}} 格 · {{Math.round(mapScale*100)}}%</span><button :disabled="mapScale<=.75" @click="mapScale=Math.max(.75,mapScale-.25)">－ 縮小</button><button :disabled="mapScale>=1.5" @click="mapScale=Math.min(1.5,mapScale+.25)">＋ 放大</button><button @click="mapScale=1">原尺寸</button></div>
-      <div class="map-frame"><div class="zoo-grid" :style="{'--cols':ZOO_WIDTH,'--tile-size':`${Math.round(68*mapScale)}px`}"><button v-for="tile in zoo.tiles" :key="tile.id" class="zoo-tile" :class="[tile.kind||'empty',{selected:selectedId===tile.id,connected:metrics.paths.has(tile.id),unconnected:tile.kind==='habitat'&&tile.animalId&&!metrics.active.includes(tile)}]" :style="tile.kind==='habitat'?{'--biome-color':zooBiome(tile.biome)?.color}:{}" :title="`${tile.x+1}, ${tile.y+1} · ${tileName(tile)}`" :aria-label="tileName(tile)" @click="selectTile(tile.id)"><span v-if="tile.kind==='habitat'" class="tile-kind">{{zooBiome(tile.biome)?.name}}棲地</span><span v-else-if="tile.kind&&!['path','tree'].includes(tile.kind)" class="tile-kind">{{tileName(tile)}}</span><span v-if="tile.kind!=='path'&&toolIcon(tile)" class="tile-object" :class="{'animal-object':Boolean(tile.animalId),'facility-object':tile.kind&&!['habitat','path','tree'].includes(tile.kind)}"><span class="tile-icon">{{toolIcon(tile)}}</span></span><span v-if="tile.kind==='habitat'" class="tile-label">{{tile.animalId?zooAnimal(tile.animalId)?.name:'待領養'}}</span><span v-if="tile.kind==='habitat'&&tile.animalId" class="tile-health" :style="{width:`${Math.round((tile.hunger+tile.clean)/2)}%`}"></span><span v-if="tile.x===0&&tile.y===4" class="entry-tag">入口</span></button></div></div>
+      <div class="map-frame"><div class="zoo-grid" :style="{'--cols':ZOO_WIDTH,'--tile-size':`${Math.round(80*mapScale)}px`}"><button v-for="tile in zoo.tiles" :key="tile.id" class="zoo-tile" :class="[tile.kind||'empty',{selected:selectedId===tile.id,connected:metrics.paths.has(tile.id),unconnected:tile.kind==='habitat'&&tile.animalId&&!metrics.active.includes(tile)}]" :style="tile.kind==='habitat'?{'--biome-color':zooBiome(tile.biome)?.color}:{}" :title="`${tile.x+1}, ${tile.y+1} · ${tileName(tile)}`" :aria-label="tileName(tile)" @click="selectTile(tile.id)"><span v-if="tile.kind==='habitat'" class="tile-kind">{{zooBiome(tile.biome)?.name}}棲地</span><span v-else-if="tile.kind&&!['path','tree'].includes(tile.kind)" class="tile-kind">{{tileName(tile)}}</span><span v-if="tile.kind!=='path'&&toolIcon(tile)" class="tile-object" :class="{'animal-object':Boolean(tile.animalId),'facility-object':tile.kind&&!['habitat','path','tree'].includes(tile.kind)}"><span class="tile-icon">{{toolIcon(tile)}}</span></span><span v-if="tile.kind==='habitat'" class="tile-label">{{tile.animalId?zooAnimal(tile.animalId)?.name:'待領養'}}</span><span v-if="tile.kind==='habitat'&&tile.animalId" class="tile-health" :style="{width:`${Math.round((tile.hunger+tile.clean)/2)}%`}"></span><span v-if="tile.x===0&&tile.y===4" class="entry-tag">入口</span></button></div></div>
       <div class="notice" role="status">{{notice}}</div><p v-if="saveNotice" class="save-notice">{{saveNotice}}</p>
     </section>
     <aside class="sidebar"><div class="tabs"><button v-for="tab in [{id:'build',name:'建造'},{id:'animals',name:'動物'},{id:'manage',name:'經營'},{id:'guide',name:'說明'}]" :key="tab.id" :class="{active:panel===tab.id}" @click="panel=tab.id">{{tab.name}}</button></div>
-      <div class="sidebar-body" v-if="panel==='build'"><h2>建造工具</h2><p>選擇工具後點園區空地；按「查看」可選取棲地與照護動物。</p><div class="tool-grid"><button v-for="tool in ZOO_TOOLS" :key="tool.id" :class="{active:selectedTool===tool.id}" @click="selectedTool=tool.id"><span>{{tool.icon}}</span><strong>{{tool.name}}</strong><small>{{tool.cost?`$${tool.cost}`:'選取'}}</small></button></div><div class="selected-card"><h2>選中地塊</h2><p>{{selected?.x+1}} 列 {{selected?.y+1}} 行 · {{tileName(selected)}}</p><p v-if="selected?.kind==='habitat'">{{selected.animalId?`飽足 ${selected.hunger}% · 清潔 ${selected.clean}%`:'空棲地：可在「動物」分頁領養。'}}</p></div></div>
-      <div class="sidebar-body" v-else-if="panel==='animals'"><h2>動物圖鑑與領養</h2><p>先點選一塊空棲地，再選符合環境的動物。領養需回答英文單字。</p><div class="animal-list"><button v-for="animal in ZOO_ANIMALS" :key="animal.id" :class="{active:chosenAnimal?.id===animal.id}" @click="selectedAnimal=animal.id"><span>{{animal.icon}}</span><strong>{{animal.name}}<small>{{animal.en}}</small></strong><em>${{animal.cost}}</em></button></div><div v-if="chosenAnimal" class="wiki-card"><button v-if="photo&&!photoError" class="photo-preview" :aria-label="`放大檢視${chosenAnimal.name}完整照片`" @click="photoOpen=true"><img :src="photo" :alt="chosenAnimal.name" loading="lazy" @error="photoError=true"><span>點擊查看完整照片 ⤢</span></button><span v-else class="wiki-fallback">{{chosenAnimal.icon}}</span><h3>{{chosenAnimal.name}} · {{chosenAnimal.en}}</h3><p>{{chosenAnimal.fact}}</p><p class="wiki-extract" v-if="wikiText">{{wikiText}}</p><a :href="`https://en.wikipedia.org/wiki/${chosenAnimal.wiki}`" target="_blank" rel="noopener noreferrer">維基百科動物介紹 ↗</a><a v-if="photoCredit" :href="photoCredit" target="_blank" rel="noopener noreferrer">圖片來源與授權 ↗</a><button class="primary" :disabled="!selected||selected.kind!=='habitat'||Boolean(selected.animalId)||selected.biome!==chosenAnimal.biome||zoo.money<chosenAnimal.cost" @click="adopt(chosenAnimal)">領養 {{chosenAnimal.name}} · ${{chosenAnimal.cost}}</button><small>需要 {{zooBiome(chosenAnimal.biome)?.name}}棲地 · 每日飼料約 ${{Math.ceil(chosenAnimal.food/2)}}</small></div><div v-if="selected?.animalId" class="care-card"><h2>照護 {{zooAnimal(selected.animalId)?.name}}</h2><p>飽足 {{selected.hunger}}% · 清潔 {{selected.clean}}%</p><div><button @click="care('feed')">🥬 餵食</button><button @click="care('clean')">🧼 清潔</button><button @click="care('vet')">🩺 獸醫檢查</button></div></div></div>
+      <section v-if="selected" class="tile-details" aria-live="polite">
+        <div class="detail-heading"><span class="detail-emoji">{{toolIcon(selected)||'🌱'}}</span><div><small>第 {{selected.x+1}} 列 · 第 {{selected.y+1}} 行</small><h2>{{tileName(selected)}}</h2></div></div>
+        <p>{{selectedDescription}}</p>
+        <div v-if="selected.kind==='habitat'" class="detail-facts">
+          <span>土地：<b>{{zooBiome(selected.biome)?.name}}棲地</b></span>
+          <span>動物：<b>{{selectedAnimalData?.name||'尚未領養'}}</b></span>
+          <span>步道：<b>{{selectedConnected?'已連通':'未連通'}}</b></span>
+          <span v-if="selectedAnimalData">飽足 <b>{{selected.hunger}}%</b> · 清潔 <b>{{selected.clean}}%</b></span>
+        </div>
+        <div v-else-if="selected.kind" class="detail-facts"><span>設施：<b>{{tileName(selected)}}</b></span><span v-if="selected.kind!=='tree'">步道：<b>{{selectedConnected?'已連通':'未連通'}}</b></span></div>
+        <div v-if="selectedAnimalData" class="detail-actions"><button @click="care('feed')">🥬 餵食</button><button @click="care('clean')">🧼 清潔</button><button @click="care('vet')">🩺 檢查</button><button @click="selectedAnimal=selected.animalId;panel='animals'">📖 照片與介紹</button></div>
+        <div v-else-if="selected.kind==='habitat'" class="detail-actions"><button @click="panel='animals'">🐾 查看可領養動物</button></div>
+      </section>
+      <div class="sidebar-body" v-if="panel==='build'"><h2>建造工具</h2><p>選擇工具後點園區空地；按「查看」可選取棲地與照護動物。</p><div class="tool-grid"><button v-for="tool in ZOO_TOOLS" :key="tool.id" :class="{active:selectedTool===tool.id}" @click="selectedTool=tool.id"><span>{{tool.icon}}</span><strong>{{tool.name}}</strong><small>{{tool.cost?`$${tool.cost}`:'選取'}}</small></button></div></div>
+      <div class="sidebar-body" v-else-if="panel==='animals'"><h2>動物圖鑑與領養</h2><p>先點選一塊空棲地，再選符合環境的動物。領養需回答英文單字。</p><div class="animal-list"><button v-for="animal in ZOO_ANIMALS" :key="animal.id" :class="{active:chosenAnimal?.id===animal.id}" @click="selectedAnimal=animal.id"><span>{{animal.icon}}</span><strong>{{animal.name}}<small>{{animal.en}}</small></strong><em>${{animal.cost}}</em></button></div><div v-if="chosenAnimal" class="wiki-card"><button v-if="photo&&!photoError" class="photo-preview" :aria-label="`放大檢視${chosenAnimal.name}完整照片`" @click="photoOpen=true"><img :src="photo" :alt="chosenAnimal.name" loading="lazy" @error="photoError=true"><span>點擊查看完整照片 ⤢</span></button><span v-else class="wiki-fallback">{{chosenAnimal.icon}}</span><h3>{{chosenAnimal.name}} · {{chosenAnimal.en}}</h3><p>{{chosenAnimal.fact}}</p><p class="wiki-extract" v-if="wikiText">{{wikiText}}</p><a :href="`https://en.wikipedia.org/wiki/${chosenAnimal.wiki}`" target="_blank" rel="noopener noreferrer">維基百科動物介紹 ↗</a><a v-if="photoCredit" :href="photoCredit" target="_blank" rel="noopener noreferrer">圖片來源與授權 ↗</a><button class="primary" :disabled="!selected||selected.kind!=='habitat'||Boolean(selected.animalId)||selected.biome!==chosenAnimal.biome||zoo.money<chosenAnimal.cost" @click="adopt(chosenAnimal)">領養 {{chosenAnimal.name}} · ${{chosenAnimal.cost}}</button><small>需要 {{zooBiome(chosenAnimal.biome)?.name}}棲地 · 每日飼料約 ${{Math.ceil(chosenAnimal.food/2)}}</small></div></div>
       <div class="sidebar-body" v-else-if="panel==='manage'"><h2>每日經營</h2><div class="report-row"><span>已連通動物／全部</span><b>{{metrics.active.length}}／{{metrics.exhibits.length}}</b></div><div class="report-row"><span>物種數</span><b>{{metrics.diversity}}</b></div><div class="report-row"><span>園區聲望</span><b>{{zoo.reputation}}／100</b></div><div class="report-row"><span>昨日收入</span><b>${{zoo.lastReport?.income||0}}</b></div><div class="report-row"><span>昨日支出</span><b>${{zoo.lastReport?.expense||0}}</b></div><label class="ticket">門票 ${{zoo.tickets}}<input type="range" min="5" max="30" :value="zoo.tickets" @change="changeTicket"></label><p>票價太高會減少遊客；餐飲攤、洗手間與解說牌會改善收益或吸引力。</p><h2>工作人員</h2><div class="report-row"><span>保育員 {{zoo.keepers}} 人</span><b>日薪 $65／人</b></div><div class="report-row"><span>獸醫 {{zoo.vets}} 人</span><b>日薪 $90／人</b></div><div class="hire"><button @click="staff('keeper')" :disabled="zoo.money<180">聘保育員 $180</button><button @click="staff('vet')" :disabled="zoo.money<260">聘獸醫 $260</button></div><p>每位保育員每天自動照顧最多三個棲地；獸醫提供專業照護職位，動物健康過低時可由其處理。</p><button v-if="zoo.money<200&&!zoo.grantUsed" class="primary" @click="requestAction({type:'grant'},true)">申請保育補助 $700</button><h2>園區日誌</h2><ul><li v-for="(entry,i) in zoo.events" :key="i">{{entry}}</li></ul></div>
       <div class="sidebar-body" v-else><h2>遊玩方法</h2><p>初始棲地可直接領養草原動物。新棲地、餐飲攤、洗手間與解說牌要建在空地，並以步道連到入口。地圖上有顏色的棲地是動物的家；未連通的棲地不會帶來遊客。</p><p>每 45 秒有效遊玩時間推進一天；暫停、答題或切換分頁不計時。動物每天需要飼料與清潔，雇保育員可自動照顧。遊客支付門票，設施與員工則有每日成本。</p><p>重要建設、領養和聘人要答對英文題；一般照護約每 35 秒問一次。分數來自答對單字、累積遊客和保育點數。園區保存在本裝置，成績另存入學生紀錄。</p><p>玩法參考《Planet Zoo》與《Zoo Tycoon》的動物福祉、棲地及遊客經營概念；本遊戲的地圖、美術與規則為獨立設計。動物照片及簡介由維基百科即時載入，未載入時改用圖示與本地文字；點圖鑑連結查看原文與圖片授權。</p></div>
     </aside></div>
@@ -268,4 +305,28 @@ watch(() => zoo.value.paused, persist);
 .photo-dialog>div{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px}
 .photo-dialog a{color:#245d66}
 .photo-close{position:absolute;top:8px;right:8px;border:0;border-radius:50%;width:32px;height:32px;background:#244d48;color:#fff;cursor:pointer}
+
+/* Keep the terrain and occupant labels in separate rows; the animal never sits over either label. */
+.zoo-tile{display:grid;grid-template-rows:clamp(15px,calc(var(--tile-size)*.2),22px) minmax(0,1fr) clamp(15px,calc(var(--tile-size)*.2),22px);justify-items:center;align-items:center;padding:1px}
+.tile-kind{position:static;grid-row:1;align-self:start;box-sizing:border-box;width:100%;min-width:0;margin:0;padding:1px;text-align:center;font-size:clamp(9px,calc(var(--tile-size)*.14),12px);line-height:1.1}
+.tile-object{grid-row:2;align-self:center;justify-self:center;margin:0}
+.tile-label{position:static;grid-row:3;align-self:end;box-sizing:border-box;width:100%;min-width:0;margin:0 0 2px;padding:1px;text-align:center;font-size:clamp(9px,calc(var(--tile-size)*.15),12px);line-height:1.1}
+.tile-object.animal-object{width:100%;height:100%;border-radius:0;background:none;box-shadow:none;animation:none;transform:none}
+.tile-object.animal-object:after{display:none}
+.animal-object .tile-icon{font-size:clamp(23px,calc(var(--tile-size)*.44),43px);line-height:1;filter:drop-shadow(0 2px 1px #24413655);transform:none}
+.tile-object.facility-object{width:68%;height:78%}
+.tile-object.facility-object .tile-icon{font-size:clamp(18px,calc(var(--tile-size)*.3),34px)}
+
+.tile-details{flex:none;max-height:min(42vh,330px);overflow:auto;margin:8px 10px 0;padding:10px 12px;border:1px solid #e5d1959e;border-radius:12px;background:linear-gradient(155deg,#356656,#234a45);box-shadow:inset 0 1px 0 #ffffff38,0 5px 12px #102f2d66}
+.detail-heading{display:flex;align-items:center;gap:9px}
+.detail-emoji{display:grid;place-items:center;width:42px;height:42px;flex:none;border-radius:10px;background:#e8d7a6;font-size:29px;box-shadow:inset 0 1px #fff8d8,0 3px 3px #173c3480}
+.detail-heading small{color:#d4e8dc;font-size:11px}
+.detail-heading h2{margin:2px 0;color:#ffe3a2;font-size:18px;line-height:1.2}
+.tile-details p{margin:7px 0;line-height:1.4;color:#e8f1e7;font-size:12px}
+.detail-facts{display:flex;flex-wrap:wrap;gap:4px 10px;margin:7px 0;font-size:12px}
+.detail-facts span{white-space:nowrap}
+.detail-facts b{color:#ffe5ab}
+.detail-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.detail-actions button{border:1px solid #f0d49f;border-radius:7px;background:#dfbc7a;color:#1e3e39;padding:5px 8px;font-size:12px;font-weight:800;cursor:pointer}
+@media(max-width:950px){.tile-details{max-height:260px}}
 </style>
