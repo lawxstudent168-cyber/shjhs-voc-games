@@ -27,6 +27,7 @@ const gamesList = [
   { id: 'alchemyAtelier', name: '⚗️ 單字鍊金工房' },
   { id: 'chess', name: '♔ 單字西洋棋' },
   { id: 'vocabularyCity', name: '🏙️ 單字城市建造家' },
+  { id: 'vocabularyZoo', name: '🦁 單字模擬動物園' },
   { id: 'go', name: '⚫ 單字圍棋' },
   { id: 'xiangqi', name: '帥 單字象棋' },
   { id: 'railwayTour', name: '🚂 單字鐵路旅遊高手' },
