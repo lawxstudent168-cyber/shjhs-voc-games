@@ -120,6 +120,7 @@ const pathNames = {
   '/game-vocabulary-city': '🏙️ 單字城市建造家',
   '/game-vocabulary-zoo': '🦁 單字模擬動物園',
   '/game-vocabulary-stairs': '🪜 單字小朋友下樓梯',
+  '/game-convenience-store': '🏪 單字便利商店',
   '/game-railway-tour': '🚂 單字鐵路旅遊高手',
   '/game-pikavolley-dual': '⚡ 皮卡丘排球（雙人）',
   '/game-battle': '⚔️ 單字方塊陣',

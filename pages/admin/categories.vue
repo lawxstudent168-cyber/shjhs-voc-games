@@ -14,6 +14,7 @@ const allGames = [
   { id: 'vocabularyCity', name: '🏙️ 單字城市建造家' },
   { id: 'vocabularyZoo', name: '🦁 單字模擬動物園' },
   { id: 'vocabularyStairs', name: '🪜 單字小朋友下樓梯' },
+  { id: 'convenienceStore', name: '🏪 單字便利商店' },
   { id: 'go', name: '⚫ 單字圍棋' },
   { id: 'xiangqi', name: '帥 單字象棋' },
   { id: 'railwayTour', name: '🚂 單字鐵路旅遊高手' },
@@ -85,6 +86,9 @@ onMounted(async () => {
       if (categories.value.length && !categories.value.some(cat => cat.games?.includes(gameId))) {
         categories.value[0].games = [...(categories.value[0].games || []), gameId];
       }
+    }
+    if (categories.value.length && !categories.value.some(cat => cat.games?.includes('convenienceStore'))) {
+      categories.value[0].games = [...(categories.value[0].games || []), 'convenienceStore'];
     }
     if (categories.value.length && !categories.value.some(cat => cat.games?.includes('vocabularyStairs'))) {
       const arcade = categories.value.find(cat => cat.games?.includes('tetris')) || categories.value[0];

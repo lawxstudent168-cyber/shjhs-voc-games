@@ -30,6 +30,7 @@ const gameDict = {
   'vocabularyCity': { name: '🏙️ 單字城市建造家', path: '/game-vocabulary-city', class: 'monopoly-btn' },
   'vocabularyZoo': { name: '🦁 單字模擬動物園', path: '/game-vocabulary-zoo', class: 'monopoly-btn' },
   'vocabularyStairs': { name: '🪜 單字小朋友下樓梯', path: '/game-vocabulary-stairs', class: 'monopoly-btn' },
+  'convenienceStore': { name: '🏪 單字便利商店', path: '/game-convenience-store', class: 'monopoly-btn' },
   'go': { name: '⚫ 單字圍棋', path: '/game-go', class: 'monopoly-btn' },
   'xiangqi': { name: '帥 單字象棋', path: '/game-xiangqi', class: 'monopoly-btn' },
   'railwayTour': { name: '🚂 單字鐵路旅遊高手', path: '/game-railway-tour', class: 'monopoly-btn' },
@@ -93,7 +94,7 @@ const noUnitGames = ['speakno1', 'speakno2', 'speakno3', 'KKphonetics', 'Phonics
 const isNoUnitGame = computed(() => noUnitGames.includes(selectedGameType.value));
 
 const defaultCategories = [
-  { id: 'c1', name: '🕹️ 經典單字遊戲', games: ['monopoly', 'happyFarm', 'isekaiFarm', 'alchemyAtelier', 'vocabularyCity', 'vocabularyZoo', 'railwayTour', 'chess', 'go', 'xiangqi', 'match', 'move', 'choice', 'fill', 'sentence', 'listen', 'puzzle', 'cross', 'review', 'picture2meaning', 'ninja'] },
+  { id: 'c1', name: '🕹️ 經典單字遊戲', games: ['monopoly', 'happyFarm', 'isekaiFarm', 'alchemyAtelier', 'convenienceStore', 'vocabularyCity', 'vocabularyZoo', 'railwayTour', 'chess', 'go', 'xiangqi', 'match', 'move', 'choice', 'fill', 'sentence', 'listen', 'puzzle', 'cross', 'review', 'picture2meaning', 'ninja'] },
   { id: 'c2', name: '🏆 體感與趣味挑戰', games: ['shake2shuffle', 'tilt2sort', 'gravitymaze', 'swing2cast', 'ARsniper', 'GPSmap', 'vocshooting', 'noropejump'] },
   { id: 'c3', name: '👾 懷舊街機遊樂場', games: ['vocabularyStairs', 'tetris', 'pinball', 'angrybirds', 'solitaire', 'pikavolley', 'pacman', 'minesweeper', 'sudoku'] },
   { id: 'c4', name: '⚔️ 雙人對戰與領域牌組', games: ['monopolyDual', 'pikavolleyDual', 'angrybirdsDual', 'battle', 'tenchi', 'tarot21', 'tarotAlch', 'tarotUno', 'tarotUno1', 'tarot21solo', 'tarotAlch1'] },
@@ -170,6 +171,8 @@ onMounted(async () => {
       if (!hasIsekaiFarm && dynamicCategories.value.length > 0) dynamicCategories.value[0].games.push('isekaiFarm');
       const hasAlchemyAtelier = dynamicCategories.value.some(cat => cat.games.includes('alchemyAtelier'));
       if (!hasAlchemyAtelier && dynamicCategories.value.length > 0) dynamicCategories.value[0].games.push('alchemyAtelier');
+      const hasConvenienceStore = dynamicCategories.value.some(cat => cat.games.includes('convenienceStore'));
+      if (!hasConvenienceStore && dynamicCategories.value.length > 0) dynamicCategories.value[0].games.push('convenienceStore');
       const hasRailwayTour = dynamicCategories.value.some(cat => cat.games.includes('railwayTour'));
       if (!hasRailwayTour && dynamicCategories.value.length > 0) dynamicCategories.value[0].games.push('railwayTour');
       for (const gameId of ['chess', 'go', 'xiangqi', 'vocabularyCity', 'vocabularyZoo']) {
