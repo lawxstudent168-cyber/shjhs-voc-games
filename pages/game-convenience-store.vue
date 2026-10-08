@@ -80,6 +80,13 @@ const visitorSlots = computed(() => store.value.tiles.map((tile, index) => tile.
   .sort((a, b) => Math.abs(a % 5 - 2) + Math.abs(Math.floor(a / 5) - 1.5)
     - Math.abs(b % 5 - 2) - Math.abs(Math.floor(b / 5) - 1.5))
   .slice(0, Math.min(5, store.value.lastVisitors)));
+const visitorAppearance = [
+  { shirt: '#df805c', shade: '#aa5945', hair: '#41302e', skin: '#efc49b' },
+  { shirt: '#6b9cc1', shade: '#467492', hair: '#4b3430', skin: '#eab489' },
+  { shirt: '#a987c2', shade: '#775e96', hair: '#2f282d', skin: '#d79e76' },
+  { shirt: '#79aa7a', shade: '#527e59', hair: '#725044', skin: '#f3d0a8' },
+  { shirt: '#d4a052', shade: '#a77b3f', hair: '#d5b78b', skin: '#edbf97' }
+];
 const tileCenter = index => ({ x: 440 + (index % 5 - Math.floor(index / 5)) * 80,
   y: 160 + (index % 5 + Math.floor(index / 5) + 1) * 42 });
 const tilePolygon = index => {
@@ -317,7 +324,10 @@ watch(store, persist, { deep: true });
               <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-opacity=".25"/></filter>
             </defs>
             <rect width="980" height="650" fill="#a9c1a8"/>
-            <path d="M0 570 980 330v130L0 650Z" fill="#718078"/><path d="M0 607 980 367" stroke="#e5d5a6" stroke-width="5" stroke-dasharray="28 22"/>
+            <!-- 道路與人行道沿著店面左前緣，入口不再被道路斜切。 -->
+            <path d="M-120 202 720 643 665 748 -175 307Z" fill="#718078"/>
+            <path d="M-162 280 678 721" fill="none" stroke="#e9ddb8" stroke-width="5" stroke-dasharray="30 24"/>
+            <path d="M-120 202 720 643 698 683 -142 242Z" fill="#d6cab0" stroke="#9e9178" stroke-width="3"/>
             <path d="M120 328 440 160 840 370 520 538Z" fill="url(#floor)" stroke="#72533f" stroke-width="12" filter="url(#shadow)"/>
             <path d="M120 223 440 55 440 160 120 328Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
             <path d="M440 55 840 265 840 370 440 160Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
@@ -351,9 +361,24 @@ watch(store, persist, { deep: true });
                 </template>
                 <text y="26" text-anchor="middle" font-size="11" font-weight="900" fill="#fff8e7" paint-order="stroke" stroke="#694832" stroke-width="3">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
               </g>
-              <g v-else-if="visitorSlots.includes(index)" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y})`" class="customer"><ellipse cy="17" rx="24" ry="8" fill="#29383b" opacity=".2"/><text y="6" text-anchor="middle" font-size="30">{{ ['🧑','👩','👨','👧','👵'][visitorSlots.indexOf(index)] }}</text></g>
+              <g v-else-if="visitorSlots.includes(index)" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y})`" class="customer">
+                <ellipse cy="20" rx="18" ry="7" fill="#3c4b42" opacity=".23"/>
+                <path d="M-6 2 -9 18 M6 2 9 18" stroke="#364354" stroke-width="6" stroke-linecap="round"/>
+                <ellipse cx="-10" cy="18" rx="6" ry="3" fill="#26323b"/><ellipse cx="9" cy="18" rx="6" ry="3" fill="#26323b"/>
+                <path d="M-13 -18 -18 -1 M13 -18 18 -1" :stroke="visitorAppearance[visitorSlots.indexOf(index)].skin" stroke-width="6" stroke-linecap="round"/>
+                <path d="M-11 -19 Q0 -24 11 -19 L10 5 -10 5Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].shirt" stroke="#5f5148" stroke-width="1.5"/>
+                <path d="M0 -22 Q11 -20 10 5 L0 5Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].shade" opacity=".78"/>
+                <path d="M-4 -24 4 -24 4 -20 -4 -20Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].skin"/>
+                <circle cy="-33" r="10" :fill="visitorAppearance[visitorSlots.indexOf(index)].skin" stroke="#9d795b" stroke-width="1"/>
+                <path d="M-10 -34 Q-9 -46 1 -45 Q11 -43 10 -32 Q4 -39 -1 -38 Q-6 -36 -10 -34Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].hair"/>
+                <circle cx="-3" cy="-32" r="1" fill="#3c3433"/><circle cx="4" cy="-32" r="1" fill="#3c3433"/>
+                <path d="M-2 -27 Q1 -25 4 -27" fill="none" stroke="#9b675a" stroke-width="1"/>
+              </g>
               <text v-else-if="selected === index" :x="tileCenter(index).x" :y="tileCenter(index).y + 5" text-anchor="middle" font-size="15" fill="#816747">＋</text>
             </g>
+            <path d="M300 423 380 465 359 503 279 461Z" fill="#678a76" stroke="#f7ecd3" stroke-width="4"/>
+            <text x="326" y="465" transform="rotate(28 326 465)" text-anchor="middle" font-size="13" font-weight="900" fill="#fffdf2">入口</text>
+            <path d="M120 328 520 538" fill="none" stroke="#efe0bf" stroke-width="4"/>
           </svg>
         </div>
         <div class="scene-foot"><span>👥 最近一小時來客 {{ store.lastVisitors }} 人 · 成交 {{ store.lastSales }} 件</span><span>選取第 {{ selected + 1 }} 格：{{ tileName(currentTile) }}<template v-if="currentTile.product"> · {{ tileProduct(currentTile)?.name }} × {{ currentTile.stock }}</template></span></div>
