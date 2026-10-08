@@ -6,7 +6,7 @@ const WIDTH = 800;
 const HEIGHT = 440;
 const STAGE_LENGTH = 1730;
 const acts = [
-  { name: '騎獅穿火圈', tip: '看準火圈和火盆，按「向上」跳過。', mount: 'lion', floor: 333, hazards: ['ring', 'pot', 'ring', 'pot', 'ring', 'pot', 'ring', 'pot'] },
+  { name: '騎獅穿火圈', tip: '火圈要從中央穿過，火盆則要跳過；獅子會陪你走完五幕。', mount: 'lion', floor: 333, hazards: ['ring', 'pot', 'ring', 'pot', 'ring', 'pot', 'ring', 'pot'] },
   { name: '走鋼索', tip: '跳過猴子；遇到高處的旗幟可按「向下」蹲低。', mount: 'rope', floor: 304, hazards: ['monkey', 'monkey', 'banner', 'monkey', 'banner', 'monkey', 'monkey', 'banner'] },
   { name: '踩球前進', tip: '跳過球與球之間的缺口；向下可放慢速度。', mount: 'ball', floor: 330, hazards: ['gap', 'gap', 'banner', 'gap', 'gap', 'banner', 'gap', 'gap'] },
   { name: '騎馬跨欄', tip: '跳過欄杆與火盆，別碰到障礙。', mount: 'horse', floor: 333, hazards: ['hurdle', 'pot', 'hurdle', 'hurdle', 'pot', 'hurdle', 'pot', 'hurdle'] },
@@ -140,11 +140,13 @@ function advance(dt) {
   world.velocity -= 1080 * dt;
   if (world.height <= 0) { world.height = 0; world.velocity = 0; }
   for (const hazard of world.hazards) {
-    if (hazard.passed || world.progress < hazard.x - 12) continue;
+    // The visible hazard centre must reach the artist before contact is judged.
+    if (hazard.passed || world.progress < hazard.x) continue;
     hazard.passed = true;
-    const avoided = hazard.type === 'banner' ? ducking || world.height > 78
-      : hazard.type === 'ring' ? world.height >= 28 && world.height <= 115
-        : world.height >= (hazard.type === 'swing' || hazard.type === 'void' ? 43 : 30);
+    const jumpHeights = { ring: 24, pot: 49, monkey: 36, gap: 38,
+      hurdle: 54, swing: 40, void: 40 };
+    const avoided = hazard.type === 'banner' ? ducking || world.height >= 75
+      : world.height >= jumpHeights[hazard.type];
     if (avoided) points.value += 35 + stage.value * 5;
     else hitObstacle(hazard.type);
     if (phase.value !== 'playing') return;
@@ -322,8 +324,23 @@ function draw() {
     const x = 178 + hazard.x - world.progress;
     if (x < -60 || x > WIDTH + 60) continue;
     drawHazard(ctx, hazard.type, x, floorY);
+    const cueX = x - 85;
+    if (!hazard.passed && cueX > 0 && cueX < WIDTH) {
+      ctx.fillStyle = hazard.type === 'banner' ? '#78dff4' : '#ffe078';
+      ctx.beginPath(); ctx.arc(cueX, floorY + 2, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#392541'; ctx.font = '900 16px system-ui';
+      ctx.textAlign = 'center'; ctx.fillText(hazard.type === 'banner' ? '▼' : '▲', cueX, floorY + 8);
+      ctx.textAlign = 'start';
+    }
   }
+  if (act.mount !== 'lion') drawLion(ctx, 90, floorY + 3 - world.height * .65, .68);
   drawArtist(ctx, 178, floorY - world.height, act.mount);
+  // The lower flaming rim sits in front of the performer, so the lion travels through the opening.
+  for (const hazard of world.hazards) {
+    if (hazard.type !== 'ring') continue;
+    const x = 178 + hazard.x - world.progress;
+    if (x > 70 && x < WIDTH + 60) drawFireRing(ctx, x, floorY, true);
+  }
   ctx.fillStyle = '#fff0b9'; ctx.font = '900 17px system-ui';
   ctx.fillText(`第 ${stage.value + 1}/5 幕　${act.name}`, 18, 37);
   ctx.fillStyle = '#fff'; ctx.font = '800 15px system-ui';
@@ -334,13 +351,7 @@ function draw() {
 }
 function drawHazard(ctx, type, x, floorY) {
   if (type === 'ring') {
-    ctx.strokeStyle = '#ef9c3e'; ctx.lineWidth = 11;
-    ctx.beginPath(); ctx.ellipse(x, floorY - 58, 34, 51, 0, 0, Math.PI * 2); ctx.stroke();
-    for (let i = 0; i < 7; i++) {
-      const a = i * Math.PI * 2 / 7;
-      ctx.fillStyle = i % 2 ? '#fcdc65' : '#f26945';
-      ctx.beginPath(); ctx.arc(x + Math.cos(a) * 34, floorY - 58 + Math.sin(a) * 51, 8, 0, Math.PI * 2); ctx.fill();
-    }
+    drawFireRing(ctx, x, floorY, false);
   } else if (type === 'pot') {
     ctx.fillStyle = '#9b5a3e'; ctx.fillRect(x - 22, floorY - 23, 44, 25);
     ctx.fillStyle = '#f47e41'; ctx.beginPath(); ctx.moveTo(x - 18, floorY - 22); ctx.lineTo(x - 7, floorY - 55);
@@ -368,21 +379,87 @@ function drawHazard(ctx, type, x, floorY) {
     ctx.fillStyle = '#fff7d0'; ctx.font = '900 12px system-ui'; ctx.fillText('跳！', x - 14, floorY - 95);
   }
 }
+function drawFireRing(ctx, x, floorY, foreground) {
+  const centreY = floorY - 82;
+  // This opening contains the whole jumping lion and rider, including at the jump apex.
+  ctx.save();
+  ctx.lineWidth = foreground ? 10 : 13;
+  ctx.strokeStyle = foreground ? '#ffd56b' : '#a94438';
+  ctx.beginPath();
+  ctx.ellipse(x, centreY, 60, 119, 0, foreground ? .12 : 0,
+    foreground ? Math.PI - .12 : Math.PI * 2);
+  ctx.stroke();
+  for (let i = 0; i < 14; i++) {
+    const a = i * Math.PI * 2 / 14;
+    if ((Math.sin(a) > 0) !== foreground) continue;
+    const fx = x + Math.cos(a) * 60;
+    const fy = centreY + Math.sin(a) * 119;
+    const flicker = 2 * Math.sin(world.time * 12 + i);
+    ctx.fillStyle = i % 2 ? '#ffe481' : '#fa7346';
+    ctx.beginPath();
+    ctx.moveTo(fx - 7, fy + 5);
+    ctx.quadraticCurveTo(fx - 4, fy - 5, fx + flicker, fy - 15 - flicker);
+    ctx.quadraticCurveTo(fx + 8, fy - 2, fx + 7, fy + 5);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+function drawLion(ctx, x, floorY, scale = 1) {
+  ctx.save();
+  ctx.translate(x, floorY);
+  ctx.scale(scale, scale);
+  ctx.lineCap = 'round';
+  // Tail, four rounded paws and a lively body remain recognizable at mobile size.
+  ctx.strokeStyle = '#b66a31'; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(-37, -23); ctx.bezierCurveTo(-66, -56, -70, -10, -55, -4); ctx.stroke();
+  ctx.fillStyle = '#8e4a2c'; ctx.beginPath(); ctx.ellipse(-55, -3, 8, 5, -.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#eaa844';
+  ctx.beginPath(); ctx.ellipse(0, -26, 45, 24, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#cf842f';
+  for (const px of [-30, -13, 21, 35]) {
+    ctx.beginPath(); ctx.ellipse(px, -3, 8, 16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f7c36b'; ctx.beginPath(); ctx.ellipse(px + 1, 10, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cf842f';
+  }
+  ctx.fillStyle = '#f6c572'; ctx.beginPath(); ctx.ellipse(5, -27, 26, 14, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#bd6b32';
+  for (let i = 0; i < 11; i++) {
+    const a = i * Math.PI * 2 / 11;
+    ctx.beginPath(); ctx.arc(34 + Math.cos(a) * 19, -37 + Math.sin(a) * 19, 10, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#d8843e'; ctx.beginPath(); ctx.arc(34, -37, 23, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffd487';
+  for (const earX of [19, 48]) { ctx.beginPath(); ctx.arc(earX, -58, 8, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#ffdda0'; ctx.beginPath(); ctx.ellipse(38, -36, 19, 18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff8e9';
+  for (const eyeX of [32, 45]) { ctx.beginPath(); ctx.arc(eyeX, -41, 4, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#3e2b35';
+  for (const eyeX of [33, 46]) { ctx.beginPath(); ctx.arc(eyeX, -41, 2, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#fff0c9'; ctx.beginPath(); ctx.ellipse(40, -28, 12, 8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#654052'; ctx.beginPath(); ctx.moveTo(38, -33); ctx.lineTo(47, -33); ctx.lineTo(42, -27); ctx.fill();
+  ctx.strokeStyle = '#654052'; ctx.lineWidth = 1.8;
+  ctx.beginPath(); ctx.arc(42, -27, 7, .12, Math.PI - .12); ctx.stroke();
+  for (const side of [-1, 1]) {
+    ctx.beginPath(); ctx.moveTo(42 + side * 8, -27); ctx.lineTo(42 + side * 20, -31); ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawArtist(ctx, x, floorY, mount) {
   if (world.invincible > 0 && Math.floor(world.time * 10) % 2) return;
-  if (mount === 'lion' || mount === 'horse') {
-    ctx.fillStyle = mount === 'lion' ? '#e8aa4d' : '#a36a4b';
+  if (mount === 'lion') drawLion(ctx, x, floorY);
+  else if (mount === 'horse') {
+    ctx.fillStyle = '#a36a4b';
     ctx.beginPath(); ctx.ellipse(x, floorY - 22, 39, 21, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillRect(x - 27, floorY - 7, 8, 20); ctx.fillRect(x + 20, floorY - 7, 8, 20);
     ctx.beginPath(); ctx.arc(x + 34, floorY - 28, 18, 0, Math.PI * 2); ctx.fill();
-    if (mount === 'lion') { ctx.strokeStyle = '#af603e'; ctx.lineWidth = 8; ctx.beginPath(); ctx.arc(x + 34, floorY - 28, 16, .4, 5.9); ctx.stroke(); }
     ctx.fillStyle = '#372a30'; ctx.fillRect(x + 39, floorY - 32, 3, 3);
   } else if (mount === 'ball') {
     ctx.fillStyle = '#e3b350'; ctx.beginPath(); ctx.arc(x, floorY - 9, 26, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#b64a58'; ctx.lineWidth = 7; ctx.beginPath(); ctx.arc(x, floorY - 9, 20, -.8, 1.8); ctx.stroke();
     ctx.strokeStyle = '#5a9eaf'; ctx.beginPath(); ctx.arc(x, floorY - 9, 14, 2.2, 5.5); ctx.stroke();
   }
-  const y = floorY - (mount === 'lion' || mount === 'horse' ? 66 : mount === 'ball' ? 53 : 30);
+  const duckOffset = (controls.down || controls.sensorDown) && world.height === 0 ? 13 : 0;
+  const y = floorY - (mount === 'lion' || mount === 'horse' ? 66 : mount === 'ball' ? 53 : 30) + duckOffset;
   ctx.fillStyle = '#f4c49d'; ctx.fillRect(x - 5, y + 17, 10, 22);
   ctx.fillStyle = '#5bd2d0'; ctx.beginPath(); ctx.moveTo(x - 18, y + 13); ctx.lineTo(x + 18, y + 13);
   ctx.lineTo(x + 12, y + 35); ctx.lineTo(x - 12, y + 35); ctx.fill();
