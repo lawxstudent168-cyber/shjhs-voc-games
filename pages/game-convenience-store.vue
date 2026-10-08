@@ -322,21 +322,37 @@ watch(store, persist, { deep: true });
             <path d="M120 223 440 55 440 160 120 328Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
             <path d="M440 55 840 265 840 370 440 160Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
             <path d="M120 251 440 83" stroke="#bd3d42" stroke-width="13"/><path d="M440 83 840 293" stroke="#bd3d42" stroke-width="13"/>
-            <g class="wall-sign"><path d="M570 145 760 245 760 295 570 195Z" fill="#884145" stroke="#f7d597" stroke-width="4"/><text x="665" y="224" transform="rotate(28 665 224)" text-anchor="middle" font-size="20" font-weight="900" fill="#fff8e6">單字便利商店</text></g>
+            <path d="M175 214 270 164 270 207 175 257Z" fill="#99c9ca" stroke="#8d694c" stroke-width="5"/><path d="M222 189 222 232" stroke="#f8e4c5" stroke-width="4"/>
+            <path d="M550 130 623 169 623 209 550 170Z" fill="#9fc9c9" stroke="#886e54" stroke-width="5"/><path d="M585 148 585 189" stroke="#f8e4c5" stroke-width="4"/>
+            <path d="M680 198 753 236 753 276 680 238Z" fill="#9fc9c9" stroke="#886e54" stroke-width="5"/><path d="M716 217 716 256" stroke="#f8e4c5" stroke-width="4"/>
+            <path d="M330 145 395 110 395 146 330 181Z" fill="#a84f53" stroke="#f3d69e" stroke-width="4"/><text x="361" y="145" transform="rotate(-28 361 145)" text-anchor="middle" font-size="13" font-weight="900" fill="#fff8e6">OPEN</text>
             <g v-for="{ tile, index } in sceneTiles" :key="index" class="scene-tile" role="button" tabindex="0" :aria-label="`第 ${index + 1} 格，${tileName(tile)}${tile.product ? '，'+tileProduct(tile)?.name : ''}`" @click="selectTile(index)" @keydown.enter.prevent="selectTile(index)" @keydown.space.prevent="selectTile(index)">
               <polygon :points="tilePolygon(index)" :fill="selected === index ? '#fbd36a' : (index % 2 ? '#edcf9a' : '#e7c58d')" stroke="#b9915c" stroke-width="2"/>
               <g v-if="tile.type" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y - 10})`">
-                <ellipse cy="34" rx="41" ry="15" fill="#493622" opacity=".28"/>
-                <path d="M-36 -8 0 -26 36 -8 0 10Z" :fill="tile.type === 'fridge' ? '#d9f6f2' : tile.type === 'counter' ? '#b36c5e' : '#dc9d63'" stroke="#695343" stroke-width="3"/>
-                <path d="M-36 -8 0 10 0 37 -36 18Z" :fill="tile.type === 'fridge' ? '#7ac0c3' : '#ad6e42'" stroke="#695343" stroke-width="2"/>
-                <path d="M0 10 36 -8 36 18 0 37Z" :fill="tile.type === 'fridge' ? '#479aa6' : '#8b5039'" stroke="#695343" stroke-width="2"/>
-                <path v-if="tile.type === 'shelf' || tile.type === 'fridge' || tile.type === 'warmer'" d="M-31 8 0 24 31 8" fill="none" stroke="#f8e1ab" stroke-width="4"/>
-                <text y="0" text-anchor="middle" font-size="29">{{ tileProduct(tile)?.icon || fixtures[tile.type]?.icon }}</text>
-                <rect x="-45" y="40" width="90" height="20" rx="6" fill="#fff8e7" stroke="#9e7557"/>
-                <text y="54" text-anchor="middle" font-size="11" font-weight="800" fill="#352a23">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
+                <ellipse cy="31" rx="42" ry="15" fill="#493622" opacity=".25"/>
+                <template v-if="tile.type === 'fridge'">
+                  <path d="M-32 -42 0 -59 32 -42 0 -25Z" fill="#f2ffff" stroke="#668f90" stroke-width="3"/>
+                  <path d="M-32 -42 0 -25 0 25 -32 8Z" fill="#8fc6c9" stroke="#668f90" stroke-width="3"/>
+                  <path d="M0 -25 32 -42 32 8 0 25Z" fill="#5c9fa7" stroke="#668f90" stroke-width="3"/>
+                  <path d="M-26 -31 -6 -21 -6 10 -26 0Z" fill="#d9faf9" opacity=".85"/><path d="M6 -20 26 -31 26 0 6 10Z" fill="#b5e7e7" opacity=".8"/>
+                  <path d="M-26 -11 -6 -1 M6 0 26 -11" stroke="#4c8590" stroke-width="3"/><text y="-14" text-anchor="middle" font-size="21">{{ tileProduct(tile)?.icon || '🥤' }}</text>
+                </template>
+                <template v-else-if="tile.type === 'shelf' || tile.type === 'warmer'">
+                  <path d="M-38 -21 0 -41 38 -21 0 -1Z" fill="#f4dbb0" stroke="#865b40" stroke-width="3"/>
+                  <path d="M-38 -21 0 -1 0 28 -38 8Z" fill="#bd8150" stroke="#865b40" stroke-width="3"/>
+                  <path d="M0 -1 38 -21 38 8 0 28Z" fill="#925a3c" stroke="#865b40" stroke-width="3"/>
+                  <path d="M-36 -6 0 14 36 -6" fill="none" stroke="#f4daa6" stroke-width="5"/><text y="-17" text-anchor="middle" font-size="23">{{ tileProduct(tile)?.icon || fixtures[tile.type]?.icon }}</text>
+                </template>
+                <template v-else>
+                  <path d="M-38 -13 0 -33 38 -13 0 7Z" fill="#e6ad83" stroke="#6e4b3b" stroke-width="3"/>
+                  <path d="M-38 -13 0 7 0 29 -38 9Z" fill="#b57355" stroke="#6e4b3b" stroke-width="3"/>
+                  <path d="M0 7 38 -13 38 9 0 29Z" fill="#8b513d" stroke="#6e4b3b" stroke-width="3"/>
+                  <rect v-if="tile.type === 'counter'" x="-10" y="-48" width="20" height="17" rx="2" fill="#374e54" stroke="#d7e5db" stroke-width="2"/><text v-else y="-17" text-anchor="middle" font-size="23">{{ fixtures[tile.type]?.icon }}</text>
+                </template>
+                <text y="26" text-anchor="middle" font-size="11" font-weight="900" fill="#fff8e7" paint-order="stroke" stroke="#694832" stroke-width="3">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
               </g>
               <g v-else-if="visitorSlots.includes(index)" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y})`" class="customer"><ellipse cy="17" rx="24" ry="8" fill="#29383b" opacity=".2"/><text y="6" text-anchor="middle" font-size="30">{{ ['🧑','👩','👨','👧','👵'][visitorSlots.indexOf(index)] }}</text></g>
-              <text v-else :x="tileCenter(index).x" :y="tileCenter(index).y + 5" text-anchor="middle" font-size="15" fill="#816747">＋</text>
+              <text v-else-if="selected === index" :x="tileCenter(index).x" :y="tileCenter(index).y + 5" text-anchor="middle" font-size="15" fill="#816747">＋</text>
             </g>
           </svg>
         </div>
