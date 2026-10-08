@@ -73,6 +73,19 @@ const score = computed(() => Math.max(0, Math.round((store.value.revenue - sessi
 const historyLink = computed(() => ({ path: '/history', query: { game: GAME } }));
 const leaderboardLink = computed(() => ({ path: '/leaderboard', query: { game: GAME, ...lesson } }));
 const selectedDistrict = computed(() => districts.find(item => item.id === store.value.district));
+const sceneTiles = computed(() => store.value.tiles.map((tile, index) => ({ tile, index }))
+  .sort((a, b) => (a.index % 5 + Math.floor(a.index / 5)) - (b.index % 5 + Math.floor(b.index / 5))));
+const visitorSlots = computed(() => store.value.tiles.map((tile, index) => tile.type ? -1 : index)
+  .filter(index => index >= 0)
+  .sort((a, b) => Math.abs(a % 5 - 2) + Math.abs(Math.floor(a / 5) - 1.5)
+    - Math.abs(b % 5 - 2) - Math.abs(Math.floor(b / 5) - 1.5))
+  .slice(0, Math.min(5, store.value.lastVisitors)));
+const tileCenter = index => ({ x: 440 + (index % 5 - Math.floor(index / 5)) * 80,
+  y: 160 + (index % 5 + Math.floor(index / 5) + 1) * 42 });
+const tilePolygon = index => {
+  const { x, y } = tileCenter(index);
+  return `${x},${y - 42} ${x + 80},${y} ${x},${y + 42} ${x - 80},${y}`;
+};
 const tileProduct = tile => goods.find(item => item.id === tile.product);
 const tileName = tile => fixtures[tile.type]?.name || '空地';
 const canPlaceProduct = computed(() => fixtures[currentTile.value.type]?.accepts.includes(product.value.category));
@@ -304,27 +317,43 @@ watch(store, persist, { deep: true });
               <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-opacity=".25"/></filter>
             </defs>
             <rect width="980" height="650" fill="#a9c1a8"/>
-            <path d="M0 540 980 310v120L0 650Z" fill="#718078"/><path d="M0 574 980 343" stroke="#e5d5a6" stroke-width="5" stroke-dasharray="28 22"/>
-            <path d="M95 285 455 92 905 333 544 530Z" fill="url(#floor)" stroke="#72533f" stroke-width="12" filter="url(#shadow)"/>
-            <path d="M95 285 455 92 455 198 95 391Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
-            <path d="M455 92 905 333 905 431 455 198Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
-            <path d="M282 222 455 130 680 250 507 344Z" fill="#f8e4af" opacity=".28"/>
-            <path d="M95 322 455 129" stroke="#bd3d42" stroke-width="13"/><path d="M455 129 905 370" stroke="#bd3d42" stroke-width="13"/>
-            <g v-for="(tile, index) in store.tiles" :key="index" class="scene-tile" role="button" tabindex="0" :aria-label="`第 ${index + 1} 格，${tileName(tile)}${tile.product ? '，'+tileProduct(tile)?.name : ''}`" @click="selectTile(index)" @keydown.enter.prevent="selectTile(index)" @keydown.space.prevent="selectTile(index)">
-              <polygon :points="`${170 + (index % 5 - Math.floor(index / 5))*73},${287 + (index % 5 + Math.floor(index / 5))*39} ${243 + (index % 5 - Math.floor(index / 5))*73},${248 + (index % 5 + Math.floor(index / 5))*39} ${316 + (index % 5 - Math.floor(index / 5))*73},${287 + (index % 5 + Math.floor(index / 5))*39} ${243 + (index % 5 - Math.floor(index / 5))*73},${326 + (index % 5 + Math.floor(index / 5))*39}`" :fill="selected === index ? '#fbd36a' : (index % 2 ? '#edcf9a' : '#e7c58d')" stroke="#b9915c" stroke-width="2"/>
-              <g v-if="tile.type" :transform="`translate(${243 + (index % 5 - Math.floor(index / 5))*73}, ${270 + (index % 5 + Math.floor(index / 5))*39})`">
-                <ellipse cy="34" rx="41" ry="15" fill="#493622" opacity=".28"/>
-                <path d="M-36 -8 0 -26 36 -8 0 10Z" :fill="tile.type === 'fridge' ? '#d9f6f2' : tile.type === 'counter' ? '#b36c5e' : '#dc9d63'" stroke="#695343" stroke-width="3"/>
-                <path d="M-36 -8 0 10 0 37 -36 18Z" :fill="tile.type === 'fridge' ? '#7ac0c3' : '#ad6e42'" stroke="#695343" stroke-width="2"/>
-                <path d="M0 10 36 -8 36 18 0 37Z" :fill="tile.type === 'fridge' ? '#479aa6' : '#8b5039'" stroke="#695343" stroke-width="2"/>
-                <path v-if="tile.type === 'shelf' || tile.type === 'fridge' || tile.type === 'warmer'" d="M-31 8 0 24 31 8" fill="none" stroke="#f8e1ab" stroke-width="4"/>
-                <text y="0" text-anchor="middle" font-size="29">{{ tileProduct(tile)?.icon || fixtures[tile.type]?.icon }}</text>
-                <text y="51" text-anchor="middle" font-size="12" font-weight="800" fill="#2f241d" paint-order="stroke" stroke="#fff8e8" stroke-width="3">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
+            <path d="M0 570 980 330v130L0 650Z" fill="#718078"/><path d="M0 607 980 367" stroke="#e5d5a6" stroke-width="5" stroke-dasharray="28 22"/>
+            <path d="M120 328 440 160 840 370 520 538Z" fill="url(#floor)" stroke="#72533f" stroke-width="12" filter="url(#shadow)"/>
+            <path d="M120 223 440 55 440 160 120 328Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
+            <path d="M440 55 840 265 840 370 440 160Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
+            <path d="M120 251 440 83" stroke="#bd3d42" stroke-width="13"/><path d="M440 83 840 293" stroke="#bd3d42" stroke-width="13"/>
+            <path d="M175 214 270 164 270 207 175 257Z" fill="#99c9ca" stroke="#8d694c" stroke-width="5"/><path d="M222 189 222 232" stroke="#f8e4c5" stroke-width="4"/>
+            <path d="M550 130 623 169 623 209 550 170Z" fill="#9fc9c9" stroke="#886e54" stroke-width="5"/><path d="M585 148 585 189" stroke="#f8e4c5" stroke-width="4"/>
+            <path d="M680 198 753 236 753 276 680 238Z" fill="#9fc9c9" stroke="#886e54" stroke-width="5"/><path d="M716 217 716 256" stroke="#f8e4c5" stroke-width="4"/>
+            <path d="M330 145 395 110 395 146 330 181Z" fill="#a84f53" stroke="#f3d69e" stroke-width="4"/><text x="361" y="145" transform="rotate(-28 361 145)" text-anchor="middle" font-size="13" font-weight="900" fill="#fff8e6">OPEN</text>
+            <g v-for="{ tile, index } in sceneTiles" :key="index" class="scene-tile" role="button" tabindex="0" :aria-label="`第 ${index + 1} 格，${tileName(tile)}${tile.product ? '，'+tileProduct(tile)?.name : ''}`" @click="selectTile(index)" @keydown.enter.prevent="selectTile(index)" @keydown.space.prevent="selectTile(index)">
+              <polygon :points="tilePolygon(index)" :fill="selected === index ? '#fbd36a' : (index % 2 ? '#edcf9a' : '#e7c58d')" stroke="#b9915c" stroke-width="2"/>
+              <g v-if="tile.type" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y - 10})`">
+                <ellipse cy="31" rx="42" ry="15" fill="#493622" opacity=".25"/>
+                <template v-if="tile.type === 'fridge'">
+                  <path d="M-32 -42 0 -59 32 -42 0 -25Z" fill="#f2ffff" stroke="#668f90" stroke-width="3"/>
+                  <path d="M-32 -42 0 -25 0 25 -32 8Z" fill="#8fc6c9" stroke="#668f90" stroke-width="3"/>
+                  <path d="M0 -25 32 -42 32 8 0 25Z" fill="#5c9fa7" stroke="#668f90" stroke-width="3"/>
+                  <path d="M-26 -31 -6 -21 -6 10 -26 0Z" fill="#d9faf9" opacity=".85"/><path d="M6 -20 26 -31 26 0 6 10Z" fill="#b5e7e7" opacity=".8"/>
+                  <path d="M-26 -11 -6 -1 M6 0 26 -11" stroke="#4c8590" stroke-width="3"/><text y="-14" text-anchor="middle" font-size="21">{{ tileProduct(tile)?.icon || '🥤' }}</text>
+                </template>
+                <template v-else-if="tile.type === 'shelf' || tile.type === 'warmer'">
+                  <path d="M-38 -21 0 -41 38 -21 0 -1Z" fill="#f4dbb0" stroke="#865b40" stroke-width="3"/>
+                  <path d="M-38 -21 0 -1 0 28 -38 8Z" fill="#bd8150" stroke="#865b40" stroke-width="3"/>
+                  <path d="M0 -1 38 -21 38 8 0 28Z" fill="#925a3c" stroke="#865b40" stroke-width="3"/>
+                  <path d="M-36 -6 0 14 36 -6" fill="none" stroke="#f4daa6" stroke-width="5"/><text y="-17" text-anchor="middle" font-size="23">{{ tileProduct(tile)?.icon || fixtures[tile.type]?.icon }}</text>
+                </template>
+                <template v-else>
+                  <path d="M-38 -13 0 -33 38 -13 0 7Z" fill="#e6ad83" stroke="#6e4b3b" stroke-width="3"/>
+                  <path d="M-38 -13 0 7 0 29 -38 9Z" fill="#b57355" stroke="#6e4b3b" stroke-width="3"/>
+                  <path d="M0 7 38 -13 38 9 0 29Z" fill="#8b513d" stroke="#6e4b3b" stroke-width="3"/>
+                  <rect v-if="tile.type === 'counter'" x="-10" y="-48" width="20" height="17" rx="2" fill="#374e54" stroke="#d7e5db" stroke-width="2"/><text v-else y="-17" text-anchor="middle" font-size="23">{{ fixtures[tile.type]?.icon }}</text>
+                </template>
+                <text y="26" text-anchor="middle" font-size="11" font-weight="900" fill="#fff8e7" paint-order="stroke" stroke="#694832" stroke-width="3">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
               </g>
-              <text v-else :x="243 + (index % 5 - Math.floor(index / 5))*73" :y="292 + (index % 5 + Math.floor(index / 5))*39" text-anchor="middle" font-size="11" fill="#816747">＋</text>
+              <g v-else-if="visitorSlots.includes(index)" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y})`" class="customer"><ellipse cy="17" rx="24" ry="8" fill="#29383b" opacity=".2"/><text y="6" text-anchor="middle" font-size="30">{{ ['🧑','👩','👨','👧','👵'][visitorSlots.indexOf(index)] }}</text></g>
+              <text v-else-if="selected === index" :x="tileCenter(index).x" :y="tileCenter(index).y + 5" text-anchor="middle" font-size="15" fill="#816747">＋</text>
             </g>
-            <g class="awning"><path d="M230 485 510 630 675 541 395 396Z" fill="#c5454a" opacity=".92"/><path d="M244 477 524 622M273 461 553 606M302 445 582 590M331 429 611 574M360 413 640 558" stroke="#fff6df" stroke-width="13" opacity=".8"/><text x="440" y="529" transform="rotate(27 440 529)" text-anchor="middle" font-size="23" font-weight="900" fill="#fffaf0" paint-order="stroke" stroke="#a52e36" stroke-width="4">單字便利商店</text></g>
-            <g v-for="i in Math.min(6, store.lastVisitors)" :key="`customer-${i}`" :transform="`translate(${75 + i*93}, ${565 - (i%2)*23})`" class="customer"><ellipse cy="13" rx="22" ry="7" fill="#29383b" opacity=".23"/><text y="0" text-anchor="middle" font-size="32">{{ ['🧑','👩','👨','👧','👵','🧒'][i-1] }}</text></g>
           </svg>
         </div>
         <div class="scene-foot"><span>👥 最近一小時來客 {{ store.lastVisitors }} 人 · 成交 {{ store.lastSales }} 件</span><span>選取第 {{ selected + 1 }} 格：{{ tileName(currentTile) }}<template v-if="currentTile.product"> · {{ tileProduct(currentTile)?.name }} × {{ currentTile.stock }}</template></span></div>
