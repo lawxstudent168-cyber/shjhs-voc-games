@@ -35,23 +35,19 @@ const districts = [
   { id: 'school', name: '學校旁', hint: '點心、飯糰需求較高', boost: ['snack', 'food'] },
   { id: 'station', name: '車站前', hint: '便當、飲料需求較高', boost: ['food', 'drink'] }
 ];
-const initialTiles = () => Array.from({ length: 20 }, (_, i) => {
-  if (i === 17) return { type: 'counter', product: '', stock: 0 };
-  if (i === 6) return { type: 'fridge', product: 'tea', stock: 4 };
-  if (i === 11) return { type: 'shelf', product: 'chips', stock: 4 };
-  return { type: '', product: '', stock: 0 };
-});
+const initialTiles = () => Array.from({ length: 20 }, () => ({ type: '', product: '', stock: 0 }));
 const initialStore = () => ({
   name: '街角單字商店', district: '', cash: 2500, day: 1, hour: 9, reputation: 55,
   tiles: initialTiles(), warehouse: Object.fromEntries(goods.map(item => [item.id, 0])),
   prices: Object.fromEntries(goods.map(item => [item.id, item.base])),
-  staff: 0, adHours: 0, visitors: 0, sold: 0, revenue: 0, expenses: 0,
-  lastVisitors: 0, lastSales: 0, notices: ['歡迎開店！先選商圈，再進貨、補架並開始營業。']
+  staff: 0, adHours: 0, decorLevel: 0, visitors: 0, sold: 0, revenue: 0, expenses: 0,
+  lastVisitors: 0, lastSales: 0, notices: ['歡迎開店！先選商圈，再自己配置收銀台、貨架與商品。']
 });
 const store = ref(initialStore());
 const words = ref([]);
 const loading = ref(true);
-const selected = ref(6);
+const selected = ref(17);
+const pendingDemolition = ref(null);
 const productId = ref('tea');
 const orderQty = ref(10);
 const priceInput = ref(32);
@@ -75,11 +71,6 @@ const leaderboardLink = computed(() => ({ path: '/leaderboard', query: { game: G
 const selectedDistrict = computed(() => districts.find(item => item.id === store.value.district));
 const sceneTiles = computed(() => store.value.tiles.map((tile, index) => ({ tile, index }))
   .sort((a, b) => (a.index % 5 + Math.floor(a.index / 5)) - (b.index % 5 + Math.floor(b.index / 5))));
-const visitorSlots = computed(() => store.value.tiles.map((tile, index) => tile.type ? -1 : index)
-  .filter(index => index >= 0)
-  .sort((a, b) => Math.abs(a % 5 - 2) + Math.abs(Math.floor(a / 5) - 1.5)
-    - Math.abs(b % 5 - 2) - Math.abs(Math.floor(b / 5) - 1.5))
-  .slice(0, Math.min(5, store.value.lastVisitors)));
 const visitorAppearance = [
   { shirt: '#df805c', shade: '#aa5945', hair: '#41302e', skin: '#efc49b' },
   { shirt: '#6b9cc1', shade: '#467492', hair: '#4b3430', skin: '#eab489' },
@@ -96,6 +87,43 @@ const tilePolygon = index => {
 const tileProduct = tile => goods.find(item => item.id === tile.product);
 const tileName = tile => fixtures[tile.type]?.name || '空地';
 const canPlaceProduct = computed(() => fixtures[currentTile.value.type]?.accepts.includes(product.value.category));
+const demolitionCost = computed(() => currentTile.value.type ? Math.max(40, Math.round((fixtures[currentTile.value.type]?.cost || 0) * .12)) : 0);
+const decorCost = computed(() => [180, 320, 500][store.value.decorLevel] || 0);
+const neighbors = index => [index - 5, index + 5, ...(index % 5 ? [index - 1] : []), ...(index % 5 < 4 ? [index + 1] : [])]
+  .filter(next => next >= 0 && next < 20);
+const visitorRoutes = computed(() => {
+  const tiles = store.value.tiles;
+  const free = new Set(tiles.map((tile, index) => tile.type ? -1 : index).filter(index => index >= 0));
+  if (!free.size || !store.value.district || !store.value.lastVisitors) return [];
+  const start = [...free].sort((a, b) => Math.abs(a % 5 - 2) + Math.abs(Math.floor(a / 5) - 3)
+    - Math.abs(b % 5 - 2) - Math.abs(Math.floor(b / 5) - 3))[0];
+  const findPath = (from, to) => {
+    const parents = new Map([[from, null]]);
+    const queue = [from];
+    for (const index of queue) {
+      if (index === to) break;
+      for (const next of neighbors(index)) if (free.has(next) && !parents.has(next)) {
+        parents.set(next, index);
+        queue.push(next);
+      }
+    }
+    if (!parents.has(to)) return [];
+    const path = [];
+    for (let index = to; index !== null; index = parents.get(index)) path.unshift(index);
+    return path;
+  };
+  const reachable = [...free].filter(index => findPath(start, index).length);
+  const stockedStops = reachable.filter(index => neighbors(index).some(next => tiles[next].stock > 0));
+  const checkoutStops = reachable.filter(index => neighbors(index).some(next => tiles[next].type === 'counter'));
+  const visitStops = stockedStops.length ? stockedStops : reachable.filter(index => index !== start);
+  const checkout = checkoutStops[0] ?? start;
+  return Array.from({ length: Math.min(5, store.value.lastVisitors) }, (_, id) => {
+    const shopping = visitStops[id % visitStops.length] ?? start;
+    const route = [...findPath(start, shopping), ...findPath(shopping, checkout).slice(1), ...findPath(checkout, start).slice(1)];
+    const points = [{ x: 330, y: 447 }, ...route.map(index => ({ x: tileCenter(index).x, y: tileCenter(index).y - 18 })), { x: 330, y: 447 }];
+    return { id, path: points.map((point, index) => `${index ? 'L' : 'M'}${point.x + (id - 2) * 3} ${point.y + (id - 2) * 2}`).join(' ') };
+  });
+});
 
 function say(message) {
   store.value.notices = [message, ...store.value.notices].slice(0, 6);
@@ -103,7 +131,7 @@ function say(message) {
 function persist() {
   if (import.meta.client) localStorage.setItem(storageKey.value, JSON.stringify(store.value));
 }
-function selectTile(index) { selected.value = index; }
+function selectTile(index) { selected.value = index; pendingDemolition.value = null; }
 function selectProduct(id) { productId.value = id; priceInput.value = store.value.prices[id]; }
 function askBefore(action) {
   if (quiz.value || !playing.value || loading.value) return;
@@ -146,6 +174,35 @@ function build(type) {
     store.value.expenses += fixture.cost;
     store.value.tiles[selected.value] = { type, product: '', stock: 0 };
     say(`已建造${fixture.name}，花費 $${fixture.cost}。`);
+    persist();
+  });
+}
+function demolish() {
+  const index = selected.value;
+  if (pendingDemolition.value !== index || !store.value.tiles[index]?.type) return;
+  askBefore(() => {
+    const tile = store.value.tiles[index];
+    if (!tile?.type) return;
+    const cost = Math.max(40, Math.round((fixtures[tile.type]?.cost || 0) * .12));
+    if (store.value.cash < cost) { say(`拆除需要 $${cost}，現金不足。`); return; }
+    if (tile.product && tile.stock > 0) store.value.warehouse[tile.product] = (store.value.warehouse[tile.product] || 0) + tile.stock;
+    store.value.cash -= cost;
+    store.value.expenses += cost;
+    store.value.tiles[index] = { type: '', product: '', stock: 0 };
+    pendingDemolition.value = null;
+    say(`已拆除${tileName(tile)}，費用 $${cost}；架上剩餘商品退回倉庫。`);
+    persist();
+  });
+}
+function upgradeDecor() {
+  askBefore(() => {
+    if (store.value.decorLevel >= 3) { say('店面裝潢已達最高級。'); return; }
+    const cost = [180, 320, 500][store.value.decorLevel];
+    if (store.value.cash < cost) { say(`裝潢需要 $${cost}，現金不足。`); return; }
+    store.value.cash -= cost;
+    store.value.expenses += cost;
+    store.value.decorLevel++;
+    say(`店面裝潢升到 ${store.value.decorLevel} 級，每小時可吸引更多客人。`);
     persist();
   });
 }
@@ -206,11 +263,11 @@ function advertise() {
   });
 }
 function runHour() {
+  if (!store.value.tiles.some(tile => tile.type === 'counter')) { say('請先在空格建造收銀台，再開始營業。'); return; }
   askBefore(() => {
-    const counter = store.value.tiles.some(tile => tile.type === 'counter');
-    if (!counter) { say('請先建造收銀台。'); return; }
+    if (!store.value.tiles.some(tile => tile.type === 'counter')) { say('請先建造收銀台。'); return; }
     const district = selectedDistrict.value;
-    const traffic = Math.max(2, 5 + store.value.staff * 2 + (store.value.adHours > 0 ? 4 : 0) + Math.floor(store.value.reputation / 30));
+    const traffic = Math.max(2, 5 + store.value.staff * 2 + (store.value.adHours > 0 ? 4 : 0) + (store.value.decorLevel || 0) * 2 + Math.floor(store.value.reputation / 30));
     let sales = 0; let visitors = 0; let missed = 0; let earned = 0;
     const stocked = store.value.tiles.filter(tile => tile.stock > 0 && tile.product);
     for (let i = 0; i < traffic; i++) {
@@ -285,7 +342,21 @@ onMounted(async () => {
   if (!lesson.version || !lesson.volume || !lesson.unit) { loading.value = false; say('請從首頁選擇課本、冊次和單元。'); return; }
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey.value) || 'null');
-    if (saved && Array.isArray(saved.tiles) && saved.tiles.length === 20) store.value = { ...initialStore(), ...saved };
+    if (saved && Array.isArray(saved.tiles) && saved.tiles.length === 20) {
+      store.value = { ...initialStore(), ...saved };
+      const legacyStarter = saved.day === 1 && saved.hour === 9 && saved.cash === 2500
+        && saved.revenue === 0 && saved.expenses === 0 && saved.staff === 0
+        && saved.tiles.every((tile, index) => {
+          if (index === 6) return tile.type === 'fridge' && tile.product === 'tea' && tile.stock === 4;
+          if (index === 11) return tile.type === 'shelf' && tile.product === 'chips' && tile.stock === 4;
+          if (index === 17) return tile.type === 'counter' && !tile.product && !tile.stock;
+          return !tile.type && !tile.product && !tile.stock;
+        });
+      if (legacyStarter) {
+        store.value.tiles = initialTiles();
+        say('開局示範設備已移除，請自行選格建設。');
+      }
+    }
   } catch { /* 保留初始狀態 */ }
   sessionStart.value = Date.now();
   sessionRevenueStart.value = store.value.revenue;
@@ -336,6 +407,14 @@ watch(store, persist, { deep: true });
             <path d="M550 130 623 169 623 209 550 170Z" fill="#9fc9c9" stroke="#886e54" stroke-width="5"/><path d="M585 148 585 189" stroke="#f8e4c5" stroke-width="4"/>
             <path d="M680 198 753 236 753 276 680 238Z" fill="#9fc9c9" stroke="#886e54" stroke-width="5"/><path d="M716 217 716 256" stroke="#f8e4c5" stroke-width="4"/>
             <path d="M330 145 395 110 395 146 330 181Z" fill="#a84f53" stroke="#f3d69e" stroke-width="4"/><text x="361" y="145" transform="rotate(-28 361 145)" text-anchor="middle" font-size="13" font-weight="900" fill="#fff8e6">OPEN</text>
+            <g v-if="store.decorLevel > 0" aria-label="店面裝潢">
+              <path d="M282 160 316 142 316 174 282 192Z" fill="#f6d472" stroke="#ad7241" stroke-width="3"/>
+              <text x="300" y="169" transform="rotate(-28 300 169)" text-anchor="middle" font-size="17" fill="#a64c48">★</text>
+              <path d="M772 245 808 264 808 293 772 274Z" fill="#f6d472" stroke="#ad7241" stroke-width="3"/>
+              <text x="790" y="274" transform="rotate(28 790 274)" text-anchor="middle" font-size="17" fill="#a64c48">★</text>
+              <path v-if="store.decorLevel > 1" d="M125 245 430 85 M450 88 835 290" fill="none" stroke="#ffe8a3" stroke-width="5" stroke-dasharray="16 12"/>
+              <path v-if="store.decorLevel > 2" d="M163 227 200 208 M720 222 760 243" fill="none" stroke="#6f9c6d" stroke-width="9" stroke-linecap="round"/>
+            </g>
             <g v-for="{ tile, index } in sceneTiles" :key="index" class="scene-tile" role="button" tabindex="0" :aria-label="`第 ${index + 1} 格，${tileName(tile)}${tile.product ? '，'+tileProduct(tile)?.name : ''}`" @click="selectTile(index)" @keydown.enter.prevent="selectTile(index)" @keydown.space.prevent="selectTile(index)">
               <polygon :points="tilePolygon(index)" :fill="selected === index ? '#fbd36a' : (index % 2 ? '#edcf9a' : '#e7c58d')" stroke="#b9915c" stroke-width="2"/>
               <g v-if="tile.type" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y - 10})`">
@@ -361,23 +440,25 @@ watch(store, persist, { deep: true });
                 </template>
                 <text y="26" text-anchor="middle" font-size="11" font-weight="900" fill="#fff8e7" paint-order="stroke" stroke="#694832" stroke-width="3">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
               </g>
-              <g v-else-if="visitorSlots.includes(index)" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y})`" class="customer">
-                <ellipse cy="20" rx="18" ry="7" fill="#3c4b42" opacity=".23"/>
-                <path d="M-6 2 -9 18 M6 2 9 18" stroke="#364354" stroke-width="6" stroke-linecap="round"/>
-                <ellipse cx="-10" cy="18" rx="6" ry="3" fill="#26323b"/><ellipse cx="9" cy="18" rx="6" ry="3" fill="#26323b"/>
-                <path d="M-13 -18 -18 -1 M13 -18 18 -1" :stroke="visitorAppearance[visitorSlots.indexOf(index)].skin" stroke-width="6" stroke-linecap="round"/>
-                <path d="M-11 -19 Q0 -24 11 -19 L10 5 -10 5Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].shirt" stroke="#5f5148" stroke-width="1.5"/>
-                <path d="M0 -22 Q11 -20 10 5 L0 5Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].shade" opacity=".78"/>
-                <path d="M-4 -24 4 -24 4 -20 -4 -20Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].skin"/>
-                <circle cy="-33" r="10" :fill="visitorAppearance[visitorSlots.indexOf(index)].skin" stroke="#9d795b" stroke-width="1"/>
-                <path d="M-10 -34 Q-9 -46 1 -45 Q11 -43 10 -32 Q4 -39 -1 -38 Q-6 -36 -10 -34Z" :fill="visitorAppearance[visitorSlots.indexOf(index)].hair"/>
-                <circle cx="-3" cy="-32" r="1" fill="#3c3433"/><circle cx="4" cy="-32" r="1" fill="#3c3433"/>
-                <path d="M-2 -27 Q1 -25 4 -27" fill="none" stroke="#9b675a" stroke-width="1"/>
-              </g>
               <text v-else-if="selected === index" :x="tileCenter(index).x" :y="tileCenter(index).y + 5" text-anchor="middle" font-size="15" fill="#816747">＋</text>
             </g>
             <path d="M300 423 380 465 359 503 279 461Z" fill="#678a76" stroke="#f7ecd3" stroke-width="4"/>
             <text x="326" y="465" transform="rotate(28 326 465)" text-anchor="middle" font-size="13" font-weight="900" fill="#fffdf2">入口</text>
+            <g v-for="route in visitorRoutes" :key="`${store.day}-${store.hour}-${route.id}`" class="customer" aria-hidden="true">
+              <ellipse cy="20" rx="18" ry="7" fill="#3c4b42" opacity=".23"/>
+              <path class="walking-leg-left" d="M-6 2 -9 18" stroke="#364354" stroke-width="6" stroke-linecap="round"/>
+              <path class="walking-leg-right" d="M6 2 9 18" stroke="#364354" stroke-width="6" stroke-linecap="round"/>
+              <ellipse cx="-10" cy="18" rx="6" ry="3" fill="#26323b"/><ellipse cx="9" cy="18" rx="6" ry="3" fill="#26323b"/>
+              <path d="M-13 -18 -18 -1 M13 -18 18 -1" :stroke="visitorAppearance[route.id].skin" stroke-width="6" stroke-linecap="round"/>
+              <path d="M-11 -19 Q0 -24 11 -19 L10 5 -10 5Z" :fill="visitorAppearance[route.id].shirt" stroke="#5f5148" stroke-width="1.5"/>
+              <path d="M0 -22 Q11 -20 10 5 L0 5Z" :fill="visitorAppearance[route.id].shade" opacity=".78"/>
+              <path d="M-4 -24 4 -24 4 -20 -4 -20Z" :fill="visitorAppearance[route.id].skin"/>
+              <circle cy="-33" r="10" :fill="visitorAppearance[route.id].skin" stroke="#9d795b" stroke-width="1"/>
+              <path d="M-10 -34 Q-9 -46 1 -45 Q11 -43 10 -32 Q4 -39 -1 -38 Q-6 -36 -10 -34Z" :fill="visitorAppearance[route.id].hair"/>
+              <circle cx="-3" cy="-32" r="1" fill="#3c3433"/><circle cx="4" cy="-32" r="1" fill="#3c3433"/>
+              <path d="M-2 -27 Q1 -25 4 -27" fill="none" stroke="#9b675a" stroke-width="1"/>
+              <animateMotion :path="route.path" :dur="`${10 + route.id * 2}s`" repeatCount="indefinite"/>
+            </g>
             <path d="M120 328 520 538" fill="none" stroke="#efe0bf" stroke-width="4"/>
           </svg>
         </div>
@@ -386,9 +467,21 @@ watch(store, persist, { deep: true });
       <aside class="controls">
         <div v-if="!store.district" class="card"><h2>📍 先選開店商圈</h2><button v-for="district in districts" :key="district.id" class="district" @click="chooseDistrict(district.id)"><b>{{ district.name }}</b><small>{{ district.hint }}</small></button></div>
         <template v-else>
-          <div class="card"><h2>🏗️ 第 {{ selected + 1 }} 格 · {{ tileName(currentTile) }}</h2><p v-if="currentTile.product">架上 {{ tileProduct(currentTile)?.name }} {{ currentTile.stock }}/12 件</p><p v-else>點選場景中的方格後操作。</p><div v-if="!currentTile.type" class="button-grid"><button v-for="(item, id) in fixtures" :key="id" @click="build(id)">{{ item.icon }} {{ item.name }} ${{ item.cost }}</button></div><p v-else-if="currentTile.type === 'counter'">收銀台提供顧客結帳；擴店時可增建。</p></div>
+          <div class="card">
+            <h2>🏗️ 第 {{ selected + 1 }} 格 · {{ tileName(currentTile) }}</h2>
+            <p v-if="currentTile.product">架上 {{ tileProduct(currentTile)?.name }} {{ currentTile.stock }}/12 件</p>
+            <p v-else-if="!currentTile.type">點選空格，自行配置店內設備；開局不附贈設備。</p>
+            <p v-else>點選場景中的其他方格，可查看或調整設施。</p>
+            <div v-if="!currentTile.type" class="button-grid"><button v-for="(item, id) in fixtures" :key="id" @click="build(id)">{{ item.icon }} {{ item.name }} ${{ item.cost }}</button></div>
+            <div v-else class="demolition">
+              <p>拆除費 ${{ demolitionCost }}；架上剩餘商品會退回倉庫。</p>
+              <button v-if="pendingDemolition !== selected" class="secondary" @click="pendingDemolition = selected">拆除這格設施</button>
+              <div v-else class="inline"><button @click="demolish">確認拆除 · ${{ demolitionCost }}</button><button class="secondary" @click="pendingDemolition = null">取消</button></div>
+            </div>
+          </div>
           <div class="card"><h2>📦 進貨、補架與定價</h2><label>商品 <select :value="productId" @change="selectProduct($event.target.value)"><option v-for="item in goods" :key="item.id" :value="item.id">{{ item.icon }} {{ item.name }}</option></select></label><p class="small">成本 ${{ product.cost }} · 建議售價 ${{ product.base }} · 倉庫 {{ store.warehouse[productId] }} 件</p><div class="inline"><label>數量 <input v-model.number="orderQty" type="number" min="1" max="100"></label><button @click="order">進貨</button></div><div class="inline"><button :disabled="!canPlaceProduct" @click="stockShelf">補到選取貨架</button><label>售價 <input v-model.number="priceInput" type="number" :min="product.cost + 1" max="200"></label><button @click="setPrice">設定</button></div></div>
           <div class="card"><h2>👥 人員與宣傳</h2><p>店員 {{ store.staff }}/3 · 每人每日 $90；傳單剩 {{ store.adHours }} 小時</p><div class="inline"><button @click="hire">聘店員 $180</button><button @click="advertise">發傳單 $120</button></div></div>
+          <div class="card"><h2>✨ 店面裝潢</h2><p>目前 {{ store.decorLevel || 0 }}/3 級；每級每小時多吸引 2 位客人，外觀也會逐步更新。</p><button :disabled="store.decorLevel >= 3" @click="upgradeDecor">{{ store.decorLevel >= 3 ? '裝潢已滿級' : `升級裝潢 $${decorCost}` }}</button></div>
           <div class="card action-card"><h2>🕒 開始營業</h2><p>每按一次經營一小時；依商圈需求、庫存、售價及店員計算客流和收入。</p><button class="run" @click="runHour">▶ 營業 1 小時</button></div>
         </template>
       </aside>
@@ -399,5 +492,5 @@ watch(store, persist, { deep: true });
 </template>
 
 <style scoped>
-.store-page{min-height:100dvh;background:radial-gradient(circle at 15% 0%,#fff3d8,#d2e1d1 55%,#a4beb1);color:#352e29;font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;padding:15px clamp(12px,2vw,36px)}.topbar,.hud,.layout,.lower{max-width:1600px;margin:0 auto}.topbar{display:flex;justify-content:space-between;align-items:center;gap:15px}.eyebrow{letter-spacing:.18em;font-weight:900;font-size:11px;color:#ad4146}.topbar h1{margin:2px 0 11px;font-size:clamp(26px,3vw,42px)}.topbar nav{display:flex;gap:8px;flex-wrap:wrap}.topbar a{background:#fff8e9;color:#733b3f;padding:9px 13px;border-radius:11px;text-decoration:none;font-weight:800;box-shadow:0 3px 0 #c39d78}.hud{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px}.hud span{background:#fff8e9;border:1px solid #d0aa80;padding:8px 13px;border-radius:12px;box-shadow:0 3px 0 #d2b796;font-size:14px;font-weight:700}.hud b{color:#a3393e}.layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(330px,.8fr);gap:16px}.scene-panel,.card{background:#fffaf0;border:2px solid #cda983;border-radius:18px;box-shadow:0 9px 25px #78664c26}.scene-panel{overflow:hidden;display:flex;flex-direction:column}.scene-title,.scene-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 15px;background:#7d3d43;color:#fff7e6;font-weight:700}.scene-title strong{font-size:19px}.scene-title span,.scene-foot{font-size:13px}.scene-scroll{overflow:auto;background:#adc6b0;flex:1}.store-scene{display:block;width:100%;min-width:680px;max-height:min(68dvh,680px);min-height:400px}.scene-tile{cursor:pointer}.scene-tile:focus-visible{outline:none;filter:drop-shadow(0 0 9px #fff)}.scene-tile:hover{filter:brightness(1.1)}.customer{animation:glow 1.8s ease-in-out infinite alternate}.customer:nth-of-type(2n){animation-delay:.5s}@keyframes glow{to{opacity:.68}}.scene-foot{background:#f5e7cf;color:#624441}.controls{display:flex;flex-direction:column;gap:11px;min-width:0}.card{padding:12px 15px}.card h2{font-size:17px;margin:0 0 8px;color:#773d3e}.card p{font-size:13px;margin:5px 0;line-height:1.45}.card label{display:flex;gap:8px;align-items:center;font-weight:800;font-size:13px}.card select,.card input{border:1px solid #b59879;background:#fff;border-radius:8px;padding:7px;min-width:0}.card select{flex:1}.card input{width:72px}.small{color:#745b4b}.button-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.inline{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px}.card button{border:1px solid #a34d4f;border-radius:9px;background:#a8464b;color:white;padding:8px 11px;cursor:pointer;font-weight:800}.card button:disabled{opacity:.5;cursor:not-allowed}.card button:hover:not(:disabled){background:#842d34}.card .district{display:flex;width:100%;justify-content:space-between;align-items:center;margin:7px 0;text-align:left}.district small{font-size:11px}.action-card{background:#fff2dc}.card .run{width:100%;font-size:17px;padding:11px;background:#2e8064;border-color:#266e58}.lower{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:15px}.lower .card p:first-of-type{font-weight:700}.quiz-overlay{position:fixed;inset:0;z-index:100;background:#201b21b8;display:grid;place-items:center;padding:16px}.quiz-card{width:min(100%,510px);background:#fffaf0;border:5px solid #e1bc84;border-radius:23px;padding:26px;text-align:center;box-shadow:0 25px 60px #150c12aa}.quiz-card small{color:#ab4449;font-weight:900;letter-spacing:.12em}.quiz-card h2{font-size:clamp(28px,5vw,43px);margin:12px 0}.choices{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:20px 0}.choices button,.submit{border:2px solid #c29f7b;background:#fff1d7;border-radius:10px;padding:13px;cursor:pointer;font-size:16px;font-weight:800}.choices .chosen{background:#458c72;color:white;border-color:#267155}.submit{background:#a8464b;color:white;width:100%}.submit:disabled{opacity:.5}@media(max-width:1000px){.layout{grid-template-columns:1fr}.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.scene-scroll{max-height:60dvh}}@media(max-width:680px){.store-page{padding:10px}.topbar{align-items:flex-start;flex-direction:column}.topbar h1{margin-bottom:2px}.hud span{font-size:12px;padding:6px 9px}.controls,.lower{grid-template-columns:1fr}.store-scene{min-width:600px}.scene-scroll{max-height:52dvh}.card{padding:11px}.choices{grid-template-columns:1fr 1fr}}
+.store-page{min-height:100dvh;background:radial-gradient(circle at 15% 0%,#fff3d8,#d2e1d1 55%,#a4beb1);color:#352e29;font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;padding:15px clamp(12px,2vw,36px)}.topbar,.hud,.layout,.lower{max-width:1600px;margin:0 auto}.topbar{display:flex;justify-content:space-between;align-items:center;gap:15px}.eyebrow{letter-spacing:.18em;font-weight:900;font-size:11px;color:#ad4146}.topbar h1{margin:2px 0 11px;font-size:clamp(26px,3vw,42px)}.topbar nav{display:flex;gap:8px;flex-wrap:wrap}.topbar a{background:#fff8e9;color:#733b3f;padding:9px 13px;border-radius:11px;text-decoration:none;font-weight:800;box-shadow:0 3px 0 #c39d78}.hud{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px}.hud span{background:#fff8e9;border:1px solid #d0aa80;padding:8px 13px;border-radius:12px;box-shadow:0 3px 0 #d2b796;font-size:14px;font-weight:700}.hud b{color:#a3393e}.layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(330px,.8fr);gap:16px}.scene-panel,.card{background:#fffaf0;border:2px solid #cda983;border-radius:18px;box-shadow:0 9px 25px #78664c26}.scene-panel{overflow:hidden;display:flex;flex-direction:column}.scene-title,.scene-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 15px;background:#7d3d43;color:#fff7e6;font-weight:700}.scene-title strong{font-size:19px}.scene-title span,.scene-foot{font-size:13px}.scene-scroll{overflow:auto;background:#adc6b0;flex:1}.store-scene{display:block;width:100%;min-width:680px;max-height:min(68dvh,680px);min-height:400px}.scene-tile{cursor:pointer}.scene-tile:focus-visible{outline:none;filter:drop-shadow(0 0 9px #fff)}.scene-tile:hover{filter:brightness(1.1)}.customer{pointer-events:none}.walking-leg-left,.walking-leg-right{transform-box:fill-box;transform-origin:center top;animation:walk .55s ease-in-out infinite alternate}.walking-leg-right{animation-direction:alternate-reverse}@keyframes walk{to{transform:rotate(17deg)}}.scene-foot{background:#f5e7cf;color:#624441}.controls{display:flex;flex-direction:column;gap:11px;min-width:0}.card{padding:12px 15px}.card h2{font-size:17px;margin:0 0 8px;color:#773d3e}.card p{font-size:13px;margin:5px 0;line-height:1.45}.card label{display:flex;gap:8px;align-items:center;font-weight:800;font-size:13px}.card select,.card input{border:1px solid #b59879;background:#fff;border-radius:8px;padding:7px;min-width:0}.card select{flex:1}.card input{width:72px}.small{color:#745b4b}.button-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.inline{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px}.card button{border:1px solid #a34d4f;border-radius:9px;background:#a8464b;color:white;padding:8px 11px;cursor:pointer;font-weight:800}.card button:disabled{opacity:.5;cursor:not-allowed}.card button:hover:not(:disabled){background:#842d34}.card .secondary{background:#fff6e9;color:#844047}.card .secondary:hover:not(:disabled){background:#f5dcc8}.demolition{border-top:1px solid #dfc4a8;margin-top:8px;padding-top:5px}.card .district{display:flex;width:100%;justify-content:space-between;align-items:center;margin:7px 0;text-align:left}.district small{font-size:11px}.action-card{background:#fff2dc}.card .run{width:100%;font-size:17px;padding:11px;background:#2e8064;border-color:#266e58}.lower{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:15px}.lower .card p:first-of-type{font-weight:700}.quiz-overlay{position:fixed;inset:0;z-index:100;background:#201b21b8;display:grid;place-items:center;padding:16px}.quiz-card{width:min(100%,510px);background:#fffaf0;border:5px solid #e1bc84;border-radius:23px;padding:26px;text-align:center;box-shadow:0 25px 60px #150c12aa}.quiz-card small{color:#ab4449;font-weight:900;letter-spacing:.12em}.quiz-card h2{font-size:clamp(28px,5vw,43px);margin:12px 0}.choices{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:20px 0}.choices button,.submit{border:2px solid #c29f7b;background:#fff1d7;border-radius:10px;padding:13px;cursor:pointer;font-size:16px;font-weight:800}.choices .chosen{background:#458c72;color:white;border-color:#267155}.submit{background:#a8464b;color:white;width:100%}.submit:disabled{opacity:.5}@media(max-width:1000px){.layout{grid-template-columns:1fr}.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.scene-scroll{max-height:60dvh}}@media(max-width:680px){.store-page{padding:10px}.topbar{align-items:flex-start;flex-direction:column}.topbar h1{margin-bottom:2px}.hud span{font-size:12px;padding:6px 9px}.controls,.lower{grid-template-columns:1fr}.store-scene{min-width:600px}.scene-scroll{max-height:52dvh}.card{padding:11px}.choices{grid-template-columns:1fr 1fr}}
 </style>
