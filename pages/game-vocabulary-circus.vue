@@ -4,7 +4,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 const GAME = '單字馬戲團';
 const WIDTH = 800;
 const HEIGHT = 440;
-const STAGE_LENGTH = 1730;
+const HAZARD_START = 350;
+const HAZARD_SPACING = 300;
+const STAGE_LENGTH = HAZARD_START + 7 * HAZARD_SPACING + 300;
+const JUMP_VELOCITY = 360;
+const GRAVITY = 640;
+const JUMP_CLEARANCE = { ring: 24, pot: 49, monkey: 36, gap: 38,
+  hurdle: 54, swing: 40, void: 40 };
 const acts = [
   { name: '騎獅穿火圈', tip: '火圈要從中央穿過，火盆則要跳過；獅子會陪你走完五幕。', mount: 'lion', floor: 333, hazards: ['ring', 'pot', 'ring', 'pot', 'ring', 'pot', 'ring', 'pot'] },
   { name: '走鋼索', tip: '跳過猴子；遇到高處的旗幟可按「向下」蹲低。', mount: 'rope', floor: 304, hazards: ['monkey', 'monkey', 'banner', 'monkey', 'banner', 'monkey', 'monkey', 'banner'] },
@@ -56,7 +62,9 @@ function resetAct() {
   world.height = 0;
   world.velocity = 0;
   world.invincible = 1;
-  world.hazards = acts[stage.value].hazards.map((type, index) => ({ type, x: 290 + index * 176, passed: false }));
+  world.hazards = acts[stage.value].hazards.map((type, index) => ({
+    type, x: HAZARD_START + index * HAZARD_SPACING, passed: false, cleared: false
+  }));
   notice.value = `第 ${stage.value + 1} 幕：${acts[stage.value].name}。${acts[stage.value].tip}`;
 }
 function startGame() {
@@ -91,7 +99,7 @@ function endGame(message) {
 }
 function jump() {
   if (phase.value !== 'playing' || world.height > 1 || world.velocity > 0) return;
-  world.velocity = 475;
+  world.velocity = JUMP_VELOCITY;
   notice.value = `${acts[stage.value].name}：跳！`;
 }
 function hitObstacle(type) {
@@ -137,16 +145,21 @@ function advance(dt) {
   world.progress += speed * dt;
   world.invincible = Math.max(0, world.invincible - dt);
   world.height = Math.max(0, world.height + world.velocity * dt);
-  world.velocity -= 1080 * dt;
+  world.velocity -= GRAVITY * dt;
   if (world.height <= 0) { world.height = 0; world.velocity = 0; }
   for (const hazard of world.hazards) {
+    if (hazard.passed) continue;
+    // Keep a successful jump during the approach, so touching down at the far edge
+    // cannot turn an obstacle already cleared into a collision.
+    if (world.progress >= hazard.x - 70 && world.progress <= hazard.x) {
+      if (hazard.type === 'banner') hazard.cleared ||= ducking || world.height >= 75;
+      else hazard.cleared ||= world.height >= JUMP_CLEARANCE[hazard.type];
+    }
     // The visible hazard centre must reach the artist before contact is judged.
-    if (hazard.passed || world.progress < hazard.x) continue;
+    if (world.progress < hazard.x) continue;
     hazard.passed = true;
-    const jumpHeights = { ring: 24, pot: 49, monkey: 36, gap: 38,
-      hurdle: 54, swing: 40, void: 40 };
-    const avoided = hazard.type === 'banner' ? ducking || world.height >= 75
-      : world.height >= jumpHeights[hazard.type];
+    const avoided = hazard.cleared || (hazard.type === 'banner'
+      ? ducking || world.height >= 75 : world.height >= JUMP_CLEARANCE[hazard.type]);
     if (avoided) points.value += 35 + stage.value * 5;
     else hitObstacle(hazard.type);
     if (phase.value !== 'playing') return;
