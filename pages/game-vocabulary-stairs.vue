@@ -18,6 +18,9 @@ const phase = ref('ready');
 const notice = ref('讀取本課單字中…');
 const sensorStatus = ref('可使用鍵盤或畫面上的左右鍵');
 const sensorEnabled = ref(false);
+const sensorWaiting = ref(false);
+const sensorReverse = ref(false);
+const sensorDirection = ref('置中');
 const health = ref(3);
 const floors = ref(0);
 const correctWords = ref([]);
@@ -36,8 +39,9 @@ const world = {
   platforms: [], scroll: 0, nextId: 0, lastLanded: 0, activeSeconds: 0,
   nextQuiz: 35, lastFrame: 0, freezeUntil: 0
 };
-const controls = { left: false, right: false, tilt: 0, neutral: null };
+const controls = { left: false, right: false, tilt: 0, neutral: null, source: '', lastOrientation: 0 };
 let frameId = 0;
+let sensorTimeout = 0;
 let startedAt = 0;
 let recordId = '';
 let attemptNumber = 0;
@@ -255,31 +259,92 @@ function keyUp(event) {
   if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') controls.left = false;
   if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') controls.right = false;
 }
+function screenAngle() {
+  const angle = window.screen?.orientation?.angle ?? window.orientation ?? 0;
+  return ((Number(angle) % 360) + 360) % 360;
+}
+function sensorSample(raw, source) {
+  if (!Number.isFinite(raw)) return;
+  if (source === 'orientation') controls.lastOrientation = performance.now();
+  const sourceChanged = controls.source !== source;
+  if (sourceChanged) {
+    controls.source = source;
+    controls.neutral = null;
+  }
+  if (controls.neutral === null) controls.neutral = raw;
+  const difference = (raw - controls.neutral) * (sensorReverse.value ? -1 : 1);
+  controls.tilt = Math.abs(difference) < 2.5 ? 0 : Math.max(-1, Math.min(1, difference / 16));
+  const nextDirection = controls.tilt < -.12 ? '向左' : controls.tilt > .12 ? '向右' : '置中';
+  const directionChanged = sensorDirection.value !== nextDirection;
+  sensorDirection.value = nextDirection;
+  const firstSample = !sensorEnabled.value;
+  sensorEnabled.value = true;
+  sensorWaiting.value = false;
+  if (sensorTimeout) window.clearTimeout(sensorTimeout);
+  if (firstSample || directionChanged || sourceChanged) {
+    sensorStatus.value = `${source === 'orientation' ? '方向感測' : '重力感測'}已連線 · ${nextDirection}。若方向相反，可按「反轉方向」。`;
+  }
+}
 function orientation(event) {
-  if (typeof event.gamma !== 'number') return;
-  if (controls.neutral === null) controls.neutral = event.gamma;
-  const difference = event.gamma - controls.neutral;
-  controls.tilt = Math.abs(difference) < 4 ? 0 : Math.max(-1, Math.min(1, difference / 20));
+  const angle = screenAngle();
+  const raw = angle === 90 ? -event.beta : angle === 270 ? event.beta : angle === 180 ? -event.gamma : event.gamma;
+  sensorSample(raw, 'orientation');
+}
+function motion(event) {
+  if (controls.lastOrientation && performance.now() - controls.lastOrientation < 700) return;
+  const gravity = event.accelerationIncludingGravity;
+  if (!gravity) return;
+  const angle = screenAngle();
+  const raw = angle === 90 ? -gravity.y : angle === 270 ? gravity.y : angle === 180 ? -gravity.x : gravity.x;
+  sensorSample(raw * 5, 'motion');
 }
 async function enableSensor() {
-  if (!window.isSecureContext || !window.DeviceOrientationEvent) {
-    sensorStatus.value = '此裝置不支援傾斜感測；請用左右鍵。'; return;
+  if (!window.isSecureContext || (!window.DeviceOrientationEvent && !window.DeviceMotionEvent)) {
+    sensorStatus.value = '此瀏覽器或非 HTTPS 網頁不支援傾斜感測；請用左右鍵。'; return;
   }
   try {
-    if (typeof window.DeviceOrientationEvent.requestPermission === 'function') {
-      const permission = await window.DeviceOrientationEvent.requestPermission();
-      if (permission !== 'granted') throw new Error('未允許動作與方向感測');
+    // Both requests must start inside this button's user gesture on iOS.
+    const requests = [];
+    if (typeof window.DeviceOrientationEvent?.requestPermission === 'function') requests.push(window.DeviceOrientationEvent.requestPermission());
+    if (typeof window.DeviceMotionEvent?.requestPermission === 'function') requests.push(window.DeviceMotionEvent.requestPermission());
+    if (requests.length) {
+      const permissions = await Promise.allSettled(requests);
+      if (!permissions.some(result => result.status === 'fulfilled' && result.value === 'granted')) {
+        throw new Error('未允許動作與方向感測');
+      }
     }
     controls.neutral = null;
+    controls.source = '';
+    controls.lastOrientation = 0;
+    controls.tilt = 0;
+    sensorEnabled.value = false;
+    sensorWaiting.value = true;
+    sensorStatus.value = '等待手機感測資料，請直握手機後左右傾斜…';
+    window.removeEventListener('deviceorientation', orientation);
+    window.removeEventListener('devicemotion', motion);
     window.addEventListener('deviceorientation', orientation);
-    sensorEnabled.value = true;
-    sensorStatus.value = '傾斜控制已啟用；直握手機、左右傾斜。也可使用畫面左右鍵。';
-  } catch (error) { sensorStatus.value = `${error.message}，請用左右鍵。`; }
+    window.addEventListener('devicemotion', motion);
+    sensorTimeout = window.setTimeout(() => {
+      if (!sensorEnabled.value) {
+        sensorWaiting.value = false;
+        sensorStatus.value = '未收到感測資料；請檢查瀏覽器動作與方向權限，或使用左右鍵。';
+      }
+    }, 3000);
+  } catch (error) {
+    sensorWaiting.value = false;
+    sensorStatus.value = `${error.message}，請用左右鍵。`;
+  }
 }
 function recalibrate() {
   controls.neutral = null;
   controls.tilt = 0;
+  sensorDirection.value = '置中';
   sensorStatus.value = '已重新校準，請直握手機。';
+}
+function reverseSensor() {
+  sensorReverse.value = !sensorReverse.value;
+  controls.tilt *= -1;
+  sensorStatus.value = `傾斜方向已${sensorReverse.value ? '反轉' : '恢復'}；現在請左右傾斜確認。`;
 }
 async function saveRecord() {
   if (!student.value?.id || !recordId) return;
@@ -336,6 +401,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', keyDown);
   window.removeEventListener('keyup', keyUp);
   window.removeEventListener('deviceorientation', orientation);
+  window.removeEventListener('devicemotion', motion);
+  if (sensorTimeout) window.clearTimeout(sensorTimeout);
 });
 </script>
 
@@ -348,21 +415,26 @@ onBeforeUnmount(() => {
     <div class="layout">
       <section class="game-panel" aria-label="下樓梯遊戲">
         <div class="status"><strong>第 {{ floors }} 階</strong><span>♥ {{ health }}　分數 {{ score }}</span><span v-if="phase === 'playing'">距離出題約 {{ remaining }} 秒</span></div>
-        <div class="stage-wrap">
-          <canvas ref="canvas" :width="WIDTH" :height="HEIGHT" aria-label="小朋友下樓梯遊戲畫面"></canvas>
-          <div v-if="phase !== 'playing'" class="stage-shade">
-            <div v-if="phase === 'ready'" class="shade-card"><h2>準備下樓梯？</h2><p>左右移動站到下一階。綠色安全，紅色尖刺會扣血，藍色彈簧會彈起。</p><button :disabled="loading || words.length < 4" @click="startGame">{{ loading ? '載入中…' : '開始下樓梯' }}</button></div>
-            <div v-else-if="phase === 'quiz' && quiz" class="shade-card"><small>單字挑戰 · 遊戲已暫停</small><h2>{{ quiz.word.zh_tw }}</h2><p>選出正確的英文單字</p><div class="answers"><button v-for="choice in quiz.choices" :key="choice.en_us" @click="answerQuestion(choice)">{{ choice.en_us }}</button></div></div>
-            <div v-else-if="phase === 'wrongPause'" class="shade-card"><h2>再等 {{ remaining }} 秒</h2><p>{{ notice }}</p></div>
-            <div v-else class="shade-card"><h2>本局結束</h2><p>抵達第 {{ floors }} 階 · {{ score }} 分</p><button @click="startGame">再玩一次</button></div>
+        <div class="mobile-sensor"><button @click="enableSensor">{{ sensorWaiting ? '等待感測資料…' : sensorEnabled ? '重新連接傾斜' : '啟用手機傾斜' }}</button><small>{{ sensorStatus }}</small></div>
+        <div class="stage-row">
+          <button class="move-control" aria-label="向左移動" @pointerdown.prevent="controls.left = true" @pointerup="controls.left = false" @pointercancel="controls.left = false" @pointerleave="controls.left = false">◀<span>向左</span></button>
+          <div class="stage-wrap">
+            <canvas ref="canvas" :width="WIDTH" :height="HEIGHT" aria-label="小朋友下樓梯遊戲畫面"></canvas>
+            <div v-if="phase !== 'playing'" class="stage-shade">
+              <div v-if="phase === 'ready'" class="shade-card"><h2>準備下樓梯？</h2><p>左右移動站到下一階。綠色安全，紅色尖刺會扣血，藍色彈簧會彈起。</p><button :disabled="loading || words.length < 4" @click="startGame">{{ loading ? '載入中…' : '開始下樓梯' }}</button></div>
+              <div v-else-if="phase === 'quiz' && quiz" class="shade-card"><small>單字挑戰 · 遊戲已暫停</small><h2>{{ quiz.word.zh_tw }}</h2><p>選出正確的英文單字</p><div class="answers"><button v-for="choice in quiz.choices" :key="choice.en_us" @click="answerQuestion(choice)">{{ choice.en_us }}</button></div></div>
+              <div v-else-if="phase === 'wrongPause'" class="shade-card"><h2>再等 {{ remaining }} 秒</h2><p>{{ notice }}</p></div>
+              <div v-else class="shade-card"><h2>本局結束</h2><p>抵達第 {{ floors }} 階 · {{ score }} 分</p><button @click="startGame">再玩一次</button></div>
+            </div>
           </div>
+          <button class="move-control" aria-label="向右移動" @pointerdown.prevent="controls.right = true" @pointerup="controls.right = false" @pointercancel="controls.right = false" @pointerleave="controls.right = false">▶<span>向右</span></button>
         </div>
-        <div class="touch-controls"><button aria-label="向左移動" @pointerdown.prevent="controls.left = true" @pointerup="controls.left = false" @pointercancel="controls.left = false" @pointerleave="controls.left = false">◀ 向左</button><button aria-label="向右移動" @pointerdown.prevent="controls.right = true" @pointerup="controls.right = false" @pointercancel="controls.right = false" @pointerleave="controls.right = false">向右 ▶</button></div>
       </section>
       <aside class="side-panel">
         <h2>遊戲操作</h2>
         <p>電腦用 ← → 或 A、D。手機可以按住畫面左右鍵；直握手機時，也能啟用傾斜控制。</p>
-        <div class="action-row"><button @click="enableSensor">啟用手機傾斜</button><button v-if="sensorEnabled" @click="recalibrate">重新校準</button></div>
+        <div class="action-row side-sensor-controls"><button @click="enableSensor">{{ sensorWaiting ? '等待感測資料…' : sensorEnabled ? '重新連接傾斜' : '啟用手機傾斜' }}</button><button v-if="sensorEnabled" @click="recalibrate">重新校準</button><button v-if="sensorEnabled" @click="reverseSensor">反轉方向</button></div>
+        <div v-if="sensorEnabled" class="action-row mobile-sensor-tools"><button @click="recalibrate">重新校準</button><button @click="reverseSensor">反轉方向</button></div>
         <small>{{ sensorStatus }}</small>
         <hr>
         <p>實際遊玩滿 {{ settings.min }}–{{ settings.max }} 秒才出一題；答對立刻繼續，答錯暫停 {{ settings.wrongPause }} 秒。問答與分頁切換期間不計入遊玩時間。</p>
@@ -376,5 +448,178 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.stairs-page{min-height:100dvh;padding:14px clamp(12px,3vw,40px);background:radial-gradient(circle at 12% 0%,#425f83,#15294d 52%,#0c1934);color:#f4f8ff;font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif}.page-header{max-width:1100px;margin:0 auto 12px;display:flex;align-items:center;justify-content:space-between;gap:14px}.eyebrow{color:#8bdeea;font-size:11px;letter-spacing:.16em;font-weight:900}.page-header h1{font-size:clamp(25px,3vw,39px);margin:2px 0}.page-header p{margin:0;color:#c9dcf4}.page-header nav{display:flex;gap:8px;flex-wrap:wrap}.page-header a,.action-row button,.touch-controls button{border:1px solid #a6c8dc;background:#244c70;color:#f6fbff;border-radius:10px;padding:9px 12px;font-weight:800;text-decoration:none;cursor:pointer}.layout{max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,650px) minmax(260px,1fr);gap:15px}.game-panel,.side-panel{background:#102b50cc;border:1px solid #6c9ab488;border-radius:20px;padding:14px;box-shadow:0 18px 40px #07132966}.game-panel{display:flex;flex-direction:column;align-items:center}.status{width:100%;display:flex;gap:12px;align-items:center;justify-content:space-around;flex-wrap:wrap;margin-bottom:8px;font-size:14px}.status strong{font-size:20px;color:#91e6ee}.stage-wrap{position:relative;width:min(100%,420px);aspect-ratio:420/620;overflow:hidden;border:6px solid #8dbbd0;border-radius:13px;box-shadow:inset 0 0 0 3px #fff6,0 12px 24px #06122d}.stage-wrap canvas{display:block;width:100%;height:100%}.stage-shade{position:absolute;inset:0;background:#081a34b9;display:grid;place-items:center;padding:16px}.shade-card{width:100%;max-width:350px;border:2px solid #a2cee3;border-radius:17px;background:#f7fbff;color:#163457;text-align:center;padding:18px;box-shadow:0 14px 38px #08193288}.shade-card h2{margin:4px 0 9px;font-size:clamp(21px,4vw,31px)}.shade-card p{line-height:1.5;margin:5px 0 15px}.shade-card small{font-weight:900;color:#20628d}.shade-card button{background:#2b6e9f;color:white;border:0;border-radius:10px;padding:11px 18px;font-size:16px;font-weight:900;cursor:pointer}.shade-card button:disabled{opacity:.5}.answers{display:grid;grid-template-columns:1fr 1fr;gap:9px}.answers button{overflow-wrap:anywhere}.touch-controls{display:flex;width:min(100%,420px);gap:14px;margin-top:10px;touch-action:none}.touch-controls button{flex:1;min-height:48px;font-size:17px;background:#32648b}.side-panel h2{margin:4px 0 9px}.side-panel p{line-height:1.55}.side-panel small{color:#c7e3f4;line-height:1.5}.action-row{display:flex;gap:8px;flex-wrap:wrap}.side-panel hr{border:0;border-top:1px solid #ffffff33;margin:16px 0}.notice{background:#254a6b;border-left:4px solid #8be2e0;padding:12px;border-radius:5px;min-height:52px}.action-row .end{background:#805263}.word-counts{display:flex;gap:8px;margin-top:18px}.word-counts span{background:#265275;padding:8px 11px;border-radius:8px}@media(max-width:760px){.page-header{align-items:flex-start;flex-direction:column}.layout{grid-template-columns:1fr}.game-panel,.side-panel{padding:9px}.side-panel{margin-bottom:20px}.stage-wrap{width:min(100%,calc((100dvh - 195px)*420/620))}.page-header nav a{font-size:13px;padding:6px 8px}}@media(min-width:761px) and (min-height:760px){.stage-wrap{width:min(100%,calc((100dvh - 170px)*420/620))}}
+.stairs-page {
+  box-sizing: border-box;
+  height: 100dvh;
+  overflow: hidden;
+  padding: 10px clamp(10px, 2vw, 28px);
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at 12% 0%, #425f83, #15294d 52%, #0c1934);
+  color: #f4f8ff;
+  font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif;
+}
+.page-header {
+  width: min(100%, 1100px);
+  margin: 0 auto 8px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.eyebrow { color: #8bdeea; font-size: 11px; letter-spacing: .16em; font-weight: 900; }
+.page-header h1 { font-size: clamp(24px, 2.7vw, 36px); margin: 1px 0; }
+.page-header p { margin: 0; color: #c9dcf4; font-size: 13px; }
+.page-header nav { display: flex; gap: 7px; flex-wrap: wrap; }
+.page-header a, .action-row button, .mobile-sensor button, .move-control {
+  border: 1px solid #a6c8dc;
+  background: #244c70;
+  color: #f6fbff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+.layout {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 650px) minmax(260px, 1fr);
+  gap: 12px;
+}
+.game-panel, .side-panel {
+  box-sizing: border-box;
+  min-height: 0;
+  background: #102b50cc;
+  border: 1px solid #6c9ab488;
+  border-radius: 18px;
+  padding: 10px;
+  box-shadow: 0 18px 40px #07132966;
+}
+.game-panel { display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+.status {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.status strong { font-size: 18px; color: #91e6ee; }
+.stage-row {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.stage-wrap {
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  width: min(420px, calc(67.742dvh - 108.39px), calc(100% - 132px));
+  aspect-ratio: 420 / 620;
+  overflow: hidden;
+  border: 5px solid #8dbbd0;
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 3px #fff6, 0 12px 24px #06122d;
+}
+.stage-wrap canvas { display: block; width: 100%; height: 100%; }
+.move-control {
+  flex: 0 0 55px;
+  min-height: 90px;
+  font-size: 25px;
+  touch-action: none;
+  user-select: none;
+  background: #32648b;
+}
+.move-control span { display: block; margin-top: 5px; font-size: 12px; }
+.move-control:active { background: #4687ac; }
+.stage-shade {
+  position: absolute;
+  inset: 0;
+  background: #081a34b9;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+.shade-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 350px;
+  border: 2px solid #a2cee3;
+  border-radius: 17px;
+  background: #f7fbff;
+  color: #163457;
+  text-align: center;
+  padding: clamp(10px, 2vh, 18px);
+  box-shadow: 0 14px 38px #08193288;
+}
+.shade-card h2 { margin: 4px 0 9px; font-size: clamp(21px, 4vw, 31px); }
+.shade-card p { line-height: 1.5; margin: 5px 0 12px; }
+.shade-card small { font-weight: 900; color: #20628d; }
+.shade-card button {
+  background: #2b6e9f;
+  color: white;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.shade-card button:disabled { opacity: .5; }
+.answers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.answers button { overflow-wrap: anywhere; }
+.side-panel { overflow-y: auto; }
+.side-panel h2 { margin: 2px 0 8px; }
+.side-panel p { line-height: 1.5; margin: 8px 0; }
+.side-panel small, .mobile-sensor small { color: #c7e3f4; line-height: 1.4; }
+.action-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.side-panel hr { border: 0; border-top: 1px solid #ffffff33; margin: 12px 0; }
+.notice { background: #254a6b; border-left: 4px solid #8be2e0; padding: 9px; border-radius: 5px; min-height: 40px; }
+.action-row .end { background: #805263; }
+.word-counts { display: flex; gap: 7px; margin-top: 12px; }
+.word-counts span { background: #265275; padding: 7px 10px; border-radius: 8px; }
+.mobile-sensor, .mobile-sensor-tools { display: none; }
+@media (max-width: 760px) {
+  .stairs-page { height: auto; min-height: 100dvh; overflow: auto; padding: 8px; }
+  .page-header { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .page-header h1 { font-size: 25px; }
+  .page-header nav a { font-size: 12px; padding: 5px 7px; }
+  .layout { grid-template-columns: 1fr; gap: 9px; }
+  .game-panel, .side-panel { padding: 8px; }
+  .mobile-sensor { width: 100%; display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .mobile-sensor button { flex: 0 0 auto; font-size: 12px; padding: 6px 8px; }
+  .mobile-sensor small { font-size: 11px; }
+  .side-sensor-controls { display: none; }
+  .mobile-sensor-tools { display: flex; }
+  .stage-row { position: relative; }
+  .stage-wrap { width: min(100%, calc(67.742dvh - 128.71px)); }
+  .move-control {
+    position: absolute;
+    z-index: 2;
+    bottom: 7px;
+    width: 58px;
+    min-height: 52px;
+    font-size: 20px;
+    background: #32648be0;
+  }
+  .move-control:first-child { left: 6px; }
+  .move-control:last-child { right: 6px; }
+  .move-control span { font-size: 11px; margin-top: 1px; }
+}
+@media (max-height: 650px) and (min-width: 761px) {
+  .page-header p { display: none; }
+  .page-header h1 { font-size: 25px; }
+  .side-panel p { font-size: 13px; }
+}
 </style>
