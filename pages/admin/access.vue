@@ -29,6 +29,7 @@ const gamesList = [
   { id: 'vocabularyCity', name: '🏙️ 單字城市建造家' },
   { id: 'vocabularyZoo', name: '🦁 單字模擬動物園' },
   { id: 'vocabularyStairs', name: '🪜 單字小朋友下樓梯' },
+  { id: 'vocabularyCircus', name: '🎪 單字馬戲團' },
   { id: 'convenienceStore', name: '🏪 單字便利商店' },
   { id: 'go', name: '⚫ 單字圍棋' },
   { id: 'xiangqi', name: '帥 單字象棋' },
