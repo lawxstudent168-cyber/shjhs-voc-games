@@ -73,6 +73,19 @@ const score = computed(() => Math.max(0, Math.round((store.value.revenue - sessi
 const historyLink = computed(() => ({ path: '/history', query: { game: GAME } }));
 const leaderboardLink = computed(() => ({ path: '/leaderboard', query: { game: GAME, ...lesson } }));
 const selectedDistrict = computed(() => districts.find(item => item.id === store.value.district));
+const sceneTiles = computed(() => store.value.tiles.map((tile, index) => ({ tile, index }))
+  .sort((a, b) => (a.index % 5 + Math.floor(a.index / 5)) - (b.index % 5 + Math.floor(b.index / 5))));
+const visitorSlots = computed(() => store.value.tiles.map((tile, index) => tile.type ? -1 : index)
+  .filter(index => index >= 0)
+  .sort((a, b) => Math.abs(a % 5 - 2) + Math.abs(Math.floor(a / 5) - 1.5)
+    - Math.abs(b % 5 - 2) - Math.abs(Math.floor(b / 5) - 1.5))
+  .slice(0, Math.min(5, store.value.lastVisitors)));
+const tileCenter = index => ({ x: 440 + (index % 5 - Math.floor(index / 5)) * 80,
+  y: 160 + (index % 5 + Math.floor(index / 5) + 1) * 42 });
+const tilePolygon = index => {
+  const { x, y } = tileCenter(index);
+  return `${x},${y - 42} ${x + 80},${y} ${x},${y + 42} ${x - 80},${y}`;
+};
 const tileProduct = tile => goods.find(item => item.id === tile.product);
 const tileName = tile => fixtures[tile.type]?.name || '空地';
 const canPlaceProduct = computed(() => fixtures[currentTile.value.type]?.accepts.includes(product.value.category));
@@ -304,27 +317,27 @@ watch(store, persist, { deep: true });
               <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-opacity=".25"/></filter>
             </defs>
             <rect width="980" height="650" fill="#a9c1a8"/>
-            <path d="M0 540 980 310v120L0 650Z" fill="#718078"/><path d="M0 574 980 343" stroke="#e5d5a6" stroke-width="5" stroke-dasharray="28 22"/>
-            <path d="M95 285 455 92 905 333 544 530Z" fill="url(#floor)" stroke="#72533f" stroke-width="12" filter="url(#shadow)"/>
-            <path d="M95 285 455 92 455 198 95 391Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
-            <path d="M455 92 905 333 905 431 455 198Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
-            <path d="M282 222 455 130 680 250 507 344Z" fill="#f8e4af" opacity=".28"/>
-            <path d="M95 322 455 129" stroke="#bd3d42" stroke-width="13"/><path d="M455 129 905 370" stroke="#bd3d42" stroke-width="13"/>
-            <g v-for="(tile, index) in store.tiles" :key="index" class="scene-tile" role="button" tabindex="0" :aria-label="`第 ${index + 1} 格，${tileName(tile)}${tile.product ? '，'+tileProduct(tile)?.name : ''}`" @click="selectTile(index)" @keydown.enter.prevent="selectTile(index)" @keydown.space.prevent="selectTile(index)">
-              <polygon :points="`${170 + (index % 5 - Math.floor(index / 5))*73},${287 + (index % 5 + Math.floor(index / 5))*39} ${243 + (index % 5 - Math.floor(index / 5))*73},${248 + (index % 5 + Math.floor(index / 5))*39} ${316 + (index % 5 - Math.floor(index / 5))*73},${287 + (index % 5 + Math.floor(index / 5))*39} ${243 + (index % 5 - Math.floor(index / 5))*73},${326 + (index % 5 + Math.floor(index / 5))*39}`" :fill="selected === index ? '#fbd36a' : (index % 2 ? '#edcf9a' : '#e7c58d')" stroke="#b9915c" stroke-width="2"/>
-              <g v-if="tile.type" :transform="`translate(${243 + (index % 5 - Math.floor(index / 5))*73}, ${270 + (index % 5 + Math.floor(index / 5))*39})`">
+            <path d="M0 570 980 330v130L0 650Z" fill="#718078"/><path d="M0 607 980 367" stroke="#e5d5a6" stroke-width="5" stroke-dasharray="28 22"/>
+            <path d="M120 328 440 160 840 370 520 538Z" fill="url(#floor)" stroke="#72533f" stroke-width="12" filter="url(#shadow)"/>
+            <path d="M120 223 440 55 440 160 120 328Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
+            <path d="M440 55 840 265 840 370 440 160Z" fill="url(#wall)" stroke="#8f6b49" stroke-width="6"/>
+            <path d="M120 251 440 83" stroke="#bd3d42" stroke-width="13"/><path d="M440 83 840 293" stroke="#bd3d42" stroke-width="13"/>
+            <g class="wall-sign"><path d="M570 145 760 245 760 295 570 195Z" fill="#884145" stroke="#f7d597" stroke-width="4"/><text x="665" y="224" transform="rotate(28 665 224)" text-anchor="middle" font-size="20" font-weight="900" fill="#fff8e6">單字便利商店</text></g>
+            <g v-for="{ tile, index } in sceneTiles" :key="index" class="scene-tile" role="button" tabindex="0" :aria-label="`第 ${index + 1} 格，${tileName(tile)}${tile.product ? '，'+tileProduct(tile)?.name : ''}`" @click="selectTile(index)" @keydown.enter.prevent="selectTile(index)" @keydown.space.prevent="selectTile(index)">
+              <polygon :points="tilePolygon(index)" :fill="selected === index ? '#fbd36a' : (index % 2 ? '#edcf9a' : '#e7c58d')" stroke="#b9915c" stroke-width="2"/>
+              <g v-if="tile.type" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y - 10})`">
                 <ellipse cy="34" rx="41" ry="15" fill="#493622" opacity=".28"/>
                 <path d="M-36 -8 0 -26 36 -8 0 10Z" :fill="tile.type === 'fridge' ? '#d9f6f2' : tile.type === 'counter' ? '#b36c5e' : '#dc9d63'" stroke="#695343" stroke-width="3"/>
                 <path d="M-36 -8 0 10 0 37 -36 18Z" :fill="tile.type === 'fridge' ? '#7ac0c3' : '#ad6e42'" stroke="#695343" stroke-width="2"/>
                 <path d="M0 10 36 -8 36 18 0 37Z" :fill="tile.type === 'fridge' ? '#479aa6' : '#8b5039'" stroke="#695343" stroke-width="2"/>
                 <path v-if="tile.type === 'shelf' || tile.type === 'fridge' || tile.type === 'warmer'" d="M-31 8 0 24 31 8" fill="none" stroke="#f8e1ab" stroke-width="4"/>
                 <text y="0" text-anchor="middle" font-size="29">{{ tileProduct(tile)?.icon || fixtures[tile.type]?.icon }}</text>
-                <text y="51" text-anchor="middle" font-size="12" font-weight="800" fill="#2f241d" paint-order="stroke" stroke="#fff8e8" stroke-width="3">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
+                <rect x="-45" y="40" width="90" height="20" rx="6" fill="#fff8e7" stroke="#9e7557"/>
+                <text y="54" text-anchor="middle" font-size="11" font-weight="800" fill="#352a23">{{ tileProduct(tile)?.name || tileName(tile) }}{{ tile.product ? ` ×${tile.stock}` : '' }}</text>
               </g>
-              <text v-else :x="243 + (index % 5 - Math.floor(index / 5))*73" :y="292 + (index % 5 + Math.floor(index / 5))*39" text-anchor="middle" font-size="11" fill="#816747">＋</text>
+              <g v-else-if="visitorSlots.includes(index)" :transform="`translate(${tileCenter(index).x}, ${tileCenter(index).y})`" class="customer"><ellipse cy="17" rx="24" ry="8" fill="#29383b" opacity=".2"/><text y="6" text-anchor="middle" font-size="30">{{ ['🧑','👩','👨','👧','👵'][visitorSlots.indexOf(index)] }}</text></g>
+              <text v-else :x="tileCenter(index).x" :y="tileCenter(index).y + 5" text-anchor="middle" font-size="15" fill="#816747">＋</text>
             </g>
-            <g class="awning"><path d="M230 485 510 630 675 541 395 396Z" fill="#c5454a" opacity=".92"/><path d="M244 477 524 622M273 461 553 606M302 445 582 590M331 429 611 574M360 413 640 558" stroke="#fff6df" stroke-width="13" opacity=".8"/><text x="440" y="529" transform="rotate(27 440 529)" text-anchor="middle" font-size="23" font-weight="900" fill="#fffaf0" paint-order="stroke" stroke="#a52e36" stroke-width="4">單字便利商店</text></g>
-            <g v-for="i in Math.min(6, store.lastVisitors)" :key="`customer-${i}`" :transform="`translate(${75 + i*93}, ${565 - (i%2)*23})`" class="customer"><ellipse cy="13" rx="22" ry="7" fill="#29383b" opacity=".23"/><text y="0" text-anchor="middle" font-size="32">{{ ['🧑','👩','👨','👧','👵','🧒'][i-1] }}</text></g>
           </svg>
         </div>
         <div class="scene-foot"><span>👥 最近一小時來客 {{ store.lastVisitors }} 人 · 成交 {{ store.lastSales }} 件</span><span>選取第 {{ selected + 1 }} 格：{{ tileName(currentTile) }}<template v-if="currentTile.product"> · {{ tileProduct(currentTile)?.name }} × {{ currentTile.stock }}</template></span></div>
