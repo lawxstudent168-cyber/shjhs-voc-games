@@ -34,6 +34,9 @@ const quiz = ref(null);
 const correctWords = ref([]);
 const wrongWords = ref([]);
 const saveNotice = ref('');
+const tiltSupported = ref(false);
+const tiltEnabled = ref(false);
+const tiltStatus = ref('');
 const score = computed(() => meters.value * 2 + bonus.value);
 const stationName = computed(() => STATIONS[Math.floor(meters.value / 500) % STATIONS.length].name);
 const nextStation = computed(() => (Math.floor(meters.value / 500) + 1) * 500);
@@ -49,6 +52,11 @@ let attemptNumber = 0;
 let disposed = false;
 let swipeStart = null;
 let lastWordKey = '';
+let tiltNeutral = null;
+let tiltFiltered = 0;
+let tiltAxis = '';
+let manualLaneUntil = 0;
+let tiltSignalTimer = 0;
 
 const random = array => array[Math.floor(Math.random() * array.length)];
 const clamp = (number, low, high) => Math.max(low, Math.min(high, number));
@@ -88,6 +96,7 @@ function endGame(message) {
 function move(direction) {
   if (phase.value !== 'playing') return;
   world.lane = clamp(world.lane + direction, -1, 1);
+  manualLaneUntil = performance.now() + 850;
 }
 function jump() {
   if (phase.value !== 'playing' || world.jumpHeight > .04 || world.slideTime > 0) return;
@@ -126,6 +135,59 @@ function pointerUp(event) {
   else slide();
 }
 function pointerCancel() { swipeStart = null; }
+function readTilt(event) {
+  const angle = ((screen.orientation?.angle ?? window.orientation ?? 0) + 360) % 360;
+  const sideways = angle === 90 || angle === 270;
+  const raw = sideways ? event.beta : event.gamma;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return;
+  const axis = `${sideways ? 'beta' : 'gamma'}:${angle}`;
+  if (tiltNeutral === null || tiltAxis !== axis) {
+    clearTimeout(tiltSignalTimer);
+    tiltNeutral = raw;
+    tiltFiltered = 0;
+    tiltAxis = axis;
+    tiltStatus.value = '已校正。向左或向右傾斜手機即可換道。';
+    return;
+  }
+  // Landscape axes rotate with the screen; the sign keeps the controls aligned with its left/right edge.
+  const sign = angle === 90 ? -1 : 1;
+  const delta = clamp((raw - tiltNeutral) * sign, -45, 45);
+  tiltFiltered += (delta - tiltFiltered) * .28;
+  if (phase.value === 'playing' && performance.now() >= manualLaneUntil)
+    world.lane = tiltFiltered > 13 ? 1 : tiltFiltered < -13 ? -1 : 0;
+}
+async function enableTilt() {
+  if (!tiltSupported.value) return;
+  try {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const result = await DeviceOrientationEvent.requestPermission();
+      if (result !== 'granted') { tiltStatus.value = '未允許動作感測；仍可滑動或使用按鍵。'; return; }
+    }
+    tiltNeutral = null;
+    tiltFiltered = 0;
+    window.addEventListener('deviceorientation', readTilt);
+    tiltEnabled.value = true;
+    tiltStatus.value = '請正握手機，等待感測器校正。';
+    tiltSignalTimer = window.setTimeout(() => {
+      if (tiltNeutral === null && tiltEnabled.value)
+        tiltStatus.value = '尚未讀到手機感測器；請確認瀏覽器權限，或改用滑動與按鍵。';
+    }, 2500);
+  } catch {
+    tiltStatus.value = '無法啟用手機傾斜；請確認瀏覽器感測器權限。';
+  }
+}
+function disableTilt() {
+  clearTimeout(tiltSignalTimer);
+  window.removeEventListener('deviceorientation', readTilt);
+  tiltEnabled.value = false;
+  tiltNeutral = null;
+  tiltStatus.value = '已關閉手機傾斜控制。';
+}
+function calibrateTilt() {
+  tiltNeutral = null;
+  tiltFiltered = 0;
+  tiltStatus.value = '請正握手機，重新校正中。';
+}
 function spawnAhead() {
   while (world.nextWave < world.distance + VIEW_DISTANCE) {
     const at = world.nextWave;
@@ -265,6 +327,8 @@ async function saveRecord() {
 }
 onMounted(async () => {
   window.addEventListener('keydown', keyDown);
+  tiltSupported.value = typeof DeviceOrientationEvent !== 'undefined'
+    && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   frameId = requestAnimationFrame(tick);
   if (!student.value?.id) { await navigateTo('/'); return; }
   if (!lesson.version || !lesson.volume || !lesson.unit) {
@@ -285,8 +349,10 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   disposed = true;
+  clearTimeout(tiltSignalTimer);
   cancelAnimationFrame(frameId);
   window.removeEventListener('keydown', keyDown);
+  window.removeEventListener('deviceorientation', readTilt);
 });
 
 function project(lane, depth) {
@@ -384,21 +450,71 @@ function drawObject(ctx, item, p, theme) {
 function drawRunner(ctx, p) {
   if (world.invincible > 0 && Math.floor(world.activeTime * 9) % 2) return;
   const slide = world.slideTime > 0 && world.jumpHeight < .2;
-  const lift = world.jumpHeight * 80;
-  const step = Math.sin(world.activeTime * 17) * 13;
-  ctx.save(); ctx.translate(p.x, p.y - lift);
-  ctx.fillStyle = '#1b304766'; ctx.beginPath(); ctx.ellipse(0, lift + 5, 34, 9, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#2d4461'; ctx.lineWidth = 11; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(-9, slide ? -25 : -42); ctx.lineTo(-18, slide ? -7 : -7 + step);
-  ctx.moveTo(10, slide ? -25 : -42); ctx.lineTo(18, slide ? -7 : -7 - step); ctx.stroke();
-  ctx.fillStyle = '#f0d1a6'; ctx.beginPath(); ctx.arc(0, slide ? -45 : -94, 17, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ed6973'; ctx.beginPath(); ctx.moveTo(-21, slide ? -37 : -78); ctx.lineTo(21, slide ? -37 : -78);
-  ctx.lineTo(17, slide ? -23 : -43); ctx.lineTo(-17, slide ? -23 : -43); ctx.fill();
-  ctx.strokeStyle = '#f0d1a6'; ctx.lineWidth = 9; ctx.beginPath();
-  ctx.moveTo(-18, slide ? -34 : -71); ctx.lineTo(-29, slide ? -16 : -52 - step);
-  ctx.moveTo(18, slide ? -34 : -71); ctx.lineTo(29, slide ? -16 : -52 + step); ctx.stroke();
-  ctx.fillStyle = '#394b81'; ctx.beginPath(); ctx.arc(0, slide ? -52 : -103, 19, Math.PI, 2 * Math.PI); ctx.fill();
-  ctx.fillStyle = '#fff8e9'; ctx.fillRect(4, slide ? -47 : -96, 5, 5);
+  const airborne = world.jumpHeight > .2;
+  const lift = world.jumpHeight * 81;
+  const stride = Math.sin(world.activeTime * 13.5);
+  const bounce = slide || airborne ? 0 : Math.abs(stride) * 3.5;
+  const lean = clamp((world.lane - world.visualLane) * .25, -.25, .25);
+  ctx.save();
+  ctx.fillStyle = '#162c4170';
+  ctx.beginPath(); ctx.ellipse(p.x, p.y + 3, Math.max(17, 38 - lift * .13), 11, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.translate(p.x, p.y - lift - bounce);
+  ctx.rotate(slide ? -.32 : lean);
+  if (slide) ctx.translate(0, 38);
+
+  // A flowing scarf, swinging backpack and articulated limbs give each action a distinct silhouette.
+  ctx.fillStyle = '#f7c966';
+  ctx.beginPath(); ctx.moveTo(12, slide ? -86 : -102);
+  ctx.quadraticCurveTo(51, -113 + stride * 4, 69, -92 + stride * 6);
+  ctx.lineTo(47, -86 + stride * 5); ctx.lineTo(11, slide ? -73 : -92); ctx.fill();
+  ctx.fillStyle = '#5e537e';
+  ctx.beginPath(); ctx.ellipse(21, slide ? -49 : -69, 17, 29, -.17, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#d59662'; ctx.fillRect(26, slide ? -54 : -72, 6, 29);
+
+  const limb = (points, color, width) => {
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(points[0], points[1]);
+    for (let index = 2; index < points.length; index += 2) ctx.lineTo(points[index], points[index + 1]);
+    ctx.stroke();
+  };
+  const legSwing = airborne ? 13 : stride * 18;
+  const rearFoot = slide ? [13, -7] : airborne ? [26, -16] : [15 + legSwing, -5 + Math.max(0, stride) * 10];
+  const frontFoot = slide ? [-30, -5] : airborne ? [-22, -20] : [-17 - legSwing, -5 + Math.max(0, -stride) * 10];
+  limb([11, slide ? -39 : -49, 17, slide ? -20 : -26, ...rearFoot], '#344861', 15);
+  limb([rearFoot[0] - 7, rearFoot[1] - 1, rearFoot[0] + 12, rearFoot[1] - 1], '#fff0c5', 10);
+  limb([-10, slide ? -39 : -49, -15, slide ? -20 : -27, ...frontFoot], '#263b58', 16);
+  limb([frontFoot[0] - 8, frontFoot[1] - 1, frontFoot[0] + 13, frontFoot[1] - 1], '#f5a76e', 11);
+
+  const bodyTop = slide ? -78 : -91;
+  const bodyBottom = slide ? -38 : -48;
+  const jacket = ctx.createLinearGradient(-24, bodyTop, 22, bodyBottom);
+  jacket.addColorStop(0, '#ff9c82'); jacket.addColorStop(.55, '#ef6375'); jacket.addColorStop(1, '#bb3f68');
+  ctx.fillStyle = jacket;
+  ctx.beginPath(); ctx.moveTo(-18, bodyTop); ctx.quadraticCurveTo(0, bodyTop - 9, 19, bodyTop);
+  ctx.lineTo(23, bodyBottom); ctx.quadraticCurveTo(0, bodyBottom + 8, -22, bodyBottom); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#ffdfab'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-7, bodyTop + 6); ctx.lineTo(1, bodyBottom - 2); ctx.stroke();
+  ctx.fillStyle = '#f5c76d'; ctx.fillRect(-17, bodyBottom - 4, 36, 5);
+  const armSwing = airborne ? 16 : stride * 13;
+  limb([18, bodyTop + 8, 29, bodyTop + 23 - armSwing, 22, bodyTop + 42 - armSwing], '#d8506c', 12);
+  limb([22, bodyTop + 42 - armSwing, 19, bodyTop + 48 - armSwing], '#f2c49d', 10);
+  limb([-18, bodyTop + 8, -29, bodyTop + 21 + armSwing, -24, bodyTop + 41 + armSwing], '#dc5a73', 12);
+  limb([-24, bodyTop + 41 + armSwing, -21, bodyTop + 48 + armSwing], '#f2c49d', 10);
+
+  const headY = slide ? -93 : -113;
+  ctx.fillStyle = '#d28d69'; ctx.fillRect(-6, headY + 13, 12, 17);
+  ctx.fillStyle = '#f2caa5'; ctx.beginPath(); ctx.ellipse(0, headY, 20, 23, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#513f53';
+  ctx.beginPath(); ctx.moveTo(-20, headY - 6); ctx.quadraticCurveTo(-24, headY - 30, 0, headY - 31);
+  ctx.quadraticCurveTo(26, headY - 30, 20, headY - 6); ctx.quadraticCurveTo(9, headY - 16, 4, headY - 12);
+  ctx.quadraticCurveTo(-8, headY - 4, -20, headY - 6); ctx.fill();
+  ctx.fillStyle = '#ffe2aa'; ctx.beginPath(); ctx.ellipse(-1, headY - 18, 21, 8, -.08, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#557e9d'; ctx.fillRect(-17, headY - 23, 33, 7);
+  ctx.fillStyle = '#2d4354'; ctx.beginPath(); ctx.arc(-8, headY + 1, 2.3, 0, Math.PI * 2);
+  ctx.arc(8, headY + 1, 2.3, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#a96067'; ctx.lineWidth = 1.8; ctx.beginPath();
+  ctx.arc(0, headY + 7, 5, .1, Math.PI - .1); ctx.stroke();
+  ctx.fillStyle = '#ec9b91'; ctx.beginPath(); ctx.arc(-14, headY + 7, 3, 0, Math.PI * 2);
+  ctx.arc(14, headY + 7, 3, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 </script>
@@ -416,13 +532,13 @@ function drawRunner(ctx, p) {
             <div v-else-if="phase === 'ended'" class="overlay-card"><h2>🏁 本局結束</h2><p>{{ notice }}</p><p><strong>{{ meters }} m · {{ score }} 分</strong><br>答對 {{ correctWords.length }} 題 · 答錯 {{ wrongWords.length }} 題</p><small>{{ saveNotice }}</small><div class="end-actions"><button @click="startGame">再跑一次</button><button v-if="saveNotice.includes('失敗')" @click="saveRecord">重試儲存</button></div></div>
           </div>
         </div>
-        <div class="controls"><button aria-label="向左換道" @click="move(-1)">◀ 左</button><button aria-label="跳躍" @click="jump">▲ 跳</button><button aria-label="滑行" @click="slide">▼ 滑</button><button aria-label="向右換道" @click="move(1)">右 ▶</button></div>
+        <div class="controls"><button aria-label="向左換道" @click="move(-1)">◀ 左</button><button aria-label="跳躍" @click="jump">▲ 跳</button><button aria-label="滑行" @click="slide">▼ 滑</button><button aria-label="向右換道" @click="move(1)">右 ▶</button><button v-if="tiltSupported" class="gyro-control" @click="tiltEnabled ? disableTilt() : enableTilt()">{{ tiltEnabled ? '📱 傾斜換道：已啟用（點此關閉）' : '📱 啟用手機傾斜換道' }}</button></div>
       </section>
-      <aside class="side-panel"><div class="stat-grid"><div><small>❤️ 愛心</small><strong>{{ lives }}</strong></div><div><small>🛡 護盾</small><strong>{{ shields }}</strong></div><div><small>🎟 單字票券</small><strong>{{ tickets }}/3</strong></div><div><small>🪙 金幣</small><strong>{{ coins }}</strong></div></div><p class="notice" role="status">{{ notice }}</p><div class="mission"><h2>本局目標</h2><p>收集票券回答英文題，跑過每 500 m 的車站，挑戰更高分。每兩站補回一顆愛心。</p><div class="route"><span v-for="(station, index) in STATIONS" :key="station.name" :class="{ active: Math.floor(meters / 500) % STATIONS.length === index }">{{ station.name }}</span></div></div><details class="help"><summary>操作與障礙說明</summary><p>電腦：←→ 換道、↑／空白鍵跳躍、↓ 滑行、Esc 暫停。手機：在畫面滑動或按下方虛擬按鍵。</p><p>列車必須換道；矮路障可以跳過；高標誌需滑行。撞擊會先消耗護盾，沒有護盾才失去愛心。</p></details><div class="side-actions"><button v-if="phase === 'playing' || phase === 'paused'" @click="togglePause">{{ phase === 'playing' ? '⏸ 暫停' : '▶ 繼續' }}</button><button v-if="['playing', 'paused', 'quiz'].includes(phase)" class="stop" @click="endGame('你已結束本局。')">結束並記錄</button></div></aside>
+      <aside class="side-panel"><div class="stat-grid"><div><small>❤️ 愛心</small><strong>{{ lives }}</strong></div><div><small>🛡 護盾</small><strong>{{ shields }}</strong></div><div><small>🎟 單字票券</small><strong>{{ tickets }}/3</strong></div><div><small>🪙 金幣</small><strong>{{ coins }}</strong></div></div><p class="notice" role="status">{{ notice }}</p><div v-if="tiltSupported" class="tilt-panel"><strong>📱 手機傾斜換道</strong><div class="tilt-buttons"><button v-if="!tiltEnabled" @click="enableTilt">啟用陀螺儀</button><template v-else><button @click="calibrateTilt">重新校正</button><button @click="disableTilt">關閉</button></template></div><small role="status">{{ tiltStatus || '正握手機後啟用；傾斜控制左右，向上／下滑控制跳躍與滑行。' }}</small></div><div class="mission"><h2>本局目標</h2><p>收集票券回答英文題，跑過每 500 m 的車站，挑戰更高分。每兩站補回一顆愛心。</p><div class="route"><span v-for="(station, index) in STATIONS" :key="station.name" :class="{ active: Math.floor(meters / 500) % STATIONS.length === index }">{{ station.name }}</span></div></div><details class="help"><summary>操作與障礙說明</summary><p>電腦：←→ 換道、↑／空白鍵跳躍、↓ 滑行、Esc 暫停。手機：可啟用傾斜換道，也可滑動畫面或按下方虛擬按鍵。</p><p>列車必須換道；矮路障可以跳過；高標誌需滑行。撞擊會先消耗護盾，沒有護盾才失去愛心。</p></details><div class="side-actions"><button v-if="phase === 'playing' || phase === 'paused'" @click="togglePause">{{ phase === 'playing' ? '⏸ 暫停' : '▶ 繼續' }}</button><button v-if="['playing', 'paused', 'quiz'].includes(phase)" class="stop" @click="endGame('你已結束本局。')">結束並記錄</button></div></aside>
     </div>
   </main>
 </template>
 
 <style scoped>
-.runner-page{min-height:100dvh;padding:12px clamp(10px,1.7vw,25px);background:radial-gradient(circle at top left,#31858f,#183856 53%,#152440);font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;color:#edfaff}.topbar{max-width:1450px;margin:0 auto 12px;display:flex;align-items:end;justify-content:space-between;gap:14px}.topbar span{font-size:11px;letter-spacing:.17em;color:#bdebdc;font-weight:900}.topbar h1{font-size:clamp(27px,3vw,43px);margin:2px 0;color:#fff5d8}.topbar p{margin:0;color:#d5e9ed}.topbar nav{display:flex;gap:7px;flex-wrap:wrap}.topbar a{background:#f3e8c8;color:#24445b;text-decoration:none;border-radius:8px;padding:8px 11px;font-weight:900;font-size:13px}.layout{max-width:1450px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(275px,315px);gap:12px}.game-panel,.side-panel{border:2px solid #6fbbc5;background:#193952;border-radius:17px;box-shadow:0 12px 28px #06192b77;overflow:hidden}.stage-head{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;background:#24556c;font-size:14px}.canvas-wrap{position:relative;background:#88bdd5}.canvas-wrap canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;margin-inline:auto;touch-action:none}.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#102e4bbd;padding:9px}.overlay-card{width:min(100%,430px);max-height:100%;overflow:auto;background:#f6faf4;color:#24465b;border:4px solid #f2d895;border-radius:17px;padding:clamp(12px,2vw,22px);text-align:center;box-shadow:0 10px 22px #07172a88}.overlay-card h2{margin:4px 0 9px;color:#285e77}.overlay-card p{line-height:1.45}.overlay-card small{display:block;margin-top:9px;color:#74646c}.overlay-card button{border:0;border-radius:9px;background:#f5bb69;color:#344461;padding:9px 13px;font-weight:900;cursor:pointer}.overlay-card button:disabled{opacity:.55}.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}.choices button{min-width:0;overflow-wrap:anywhere;background:#d8eaf0}.quiz-label{font-weight:900;color:#4f8d93}.end-actions{display:flex;justify-content:center;gap:8px;margin-top:11px}.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;padding:9px}.controls button{border:2px solid #c7e9e8;background:#4b99a1;color:white;border-radius:10px;min-height:50px;font-weight:900;font-size:16px;cursor:pointer;touch-action:manipulation}.controls button:nth-child(2){background:#cb7868}.controls button:nth-child(3){background:#7d81bc}.side-panel{padding:12px}.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.stat-grid>div{display:flex;align-items:center;justify-content:space-between;background:#23506a;border-radius:9px;padding:8px}.stat-grid small{color:#b6e9e5;font-size:11px}.stat-grid strong{font-size:20px}.notice{min-height:57px;background:#27516a;border-radius:10px;padding:10px;font-weight:800;font-size:13px;line-height:1.45}.mission h2{font-size:17px;margin:12px 0 4px}.mission p,.help p{font-size:12px;line-height:1.5}.route{display:grid;gap:5px}.route span{padding:6px 8px;background:#24475e;border-left:3px solid #6f9da3;border-radius:4px;font-size:12px}.route span.active{background:#32677a;border-color:#ffd679;color:#fff7d1;font-weight:900}.help{margin-top:12px;border-top:1px solid #5c9ba6;padding-top:9px;font-size:12px}.help summary{cursor:pointer;font-weight:900}.side-actions{display:flex;gap:7px;margin-top:12px}.side-actions button{flex:1;border:0;border-radius:9px;background:#9dcbd0;color:#1b4356;padding:10px;font-weight:900;cursor:pointer}.side-actions .stop{background:#e89990;color:#472c39}@media(min-width:950px) and (min-height:680px){.runner-page{height:100dvh;min-height:0;overflow:hidden;display:flex;flex-direction:column}.topbar{width:100%;flex:0 0 auto}.layout{width:100%;flex:1;min-height:0;align-items:stretch}.game-panel{display:flex;flex-direction:column;min-height:0}.canvas-wrap{margin:auto 0}.canvas-wrap canvas{max-width:calc((100dvh - 205px)*16/9)}.side-panel{overflow-y:auto}.help{margin-top:auto}}@media(max-width:950px){.layout{grid-template-columns:1fr}.canvas-wrap canvas{max-width:none}.side-panel{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat-grid{grid-row:span 2}.mission{grid-column:1/-1}.route{grid-template-columns:repeat(2,1fr)}.help{grid-column:1/-1}.side-actions{grid-column:1/-1}}@media(max-width:620px){.runner-page{padding:7px}.topbar{display:block}.topbar h1{font-size:26px}.topbar p{font-size:11px}.topbar nav{margin-top:7px;gap:5px}.topbar a{font-size:11px;padding:6px}.stage-head{font-size:11px}.controls{padding:6px;gap:4px}.controls button{min-height:53px;font-size:14px}.side-panel{display:block;padding:10px}.mission p{margin:5px 0}.route{display:none}.notice{min-height:0;padding:7px}.overlay-card{padding:9px}.overlay-card h2{font-size:19px}.overlay-card p{font-size:12px;margin:7px 0}.choices button{font-size:12px;padding:7px}}
+.runner-page{min-height:100dvh;padding:12px clamp(10px,1.7vw,25px);background:radial-gradient(circle at top left,#31858f,#183856 53%,#152440);font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;color:#edfaff}.topbar{max-width:1450px;margin:0 auto 12px;display:flex;align-items:end;justify-content:space-between;gap:14px}.topbar span{font-size:11px;letter-spacing:.17em;color:#bdebdc;font-weight:900}.topbar h1{font-size:clamp(27px,3vw,43px);margin:2px 0;color:#fff5d8}.topbar p{margin:0;color:#d5e9ed}.topbar nav{display:flex;gap:7px;flex-wrap:wrap}.topbar a{background:#f3e8c8;color:#24445b;text-decoration:none;border-radius:8px;padding:8px 11px;font-weight:900;font-size:13px}.layout{max-width:1450px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(275px,315px);gap:12px}.game-panel,.side-panel{border:2px solid #6fbbc5;background:#193952;border-radius:17px;box-shadow:0 12px 28px #06192b77;overflow:hidden}.stage-head{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;background:#24556c;font-size:14px}.canvas-wrap{position:relative;background:#88bdd5}.canvas-wrap canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;margin-inline:auto;touch-action:none}.overlay{position:absolute;inset:0;display:grid;place-items:center;background:#102e4bbd;padding:9px}.overlay-card{width:min(100%,430px);max-height:100%;overflow:auto;background:#f6faf4;color:#24465b;border:4px solid #f2d895;border-radius:17px;padding:clamp(12px,2vw,22px);text-align:center;box-shadow:0 10px 22px #07172a88}.overlay-card h2{margin:4px 0 9px;color:#285e77}.overlay-card p{line-height:1.45}.overlay-card small{display:block;margin-top:9px;color:#74646c}.overlay-card button{border:0;border-radius:9px;background:#f5bb69;color:#344461;padding:9px 13px;font-weight:900;cursor:pointer}.overlay-card button:disabled{opacity:.55}.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}.choices button{min-width:0;overflow-wrap:anywhere;background:#d8eaf0}.quiz-label{font-weight:900;color:#4f8d93}.end-actions{display:flex;justify-content:center;gap:8px;margin-top:11px}.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;padding:9px}.controls button{border:2px solid #c7e9e8;background:#4b99a1;color:white;border-radius:10px;min-height:50px;font-weight:900;font-size:16px;cursor:pointer;touch-action:manipulation}.controls button:nth-child(2){background:#cb7868}.controls button:nth-child(3){background:#7d81bc}.controls .gyro-control{grid-column:1/-1;min-height:35px;background:#28766c;font-size:13px}.side-panel{padding:12px}.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.stat-grid>div{display:flex;align-items:center;justify-content:space-between;background:#23506a;border-radius:9px;padding:8px}.stat-grid small{color:#b6e9e5;font-size:11px}.stat-grid strong{font-size:20px}.notice{min-height:57px;background:#27516a;border-radius:10px;padding:10px;font-weight:800;font-size:13px;line-height:1.45}.tilt-panel{background:#254f67;border:1px solid #72b8c3;border-radius:10px;padding:9px}.tilt-panel strong{font-size:13px}.tilt-panel small{display:block;margin-top:5px;color:#d0ecec;font-size:11px;line-height:1.4}.tilt-buttons{display:flex;gap:6px;margin-top:5px}.tilt-buttons button{border:0;border-radius:7px;padding:6px 9px;background:#e8da9d;color:#23425b;font-weight:900;cursor:pointer}.mission h2{font-size:17px;margin:12px 0 4px}.mission p,.help p{font-size:12px;line-height:1.5}.route{display:grid;gap:5px}.route span{padding:6px 8px;background:#24475e;border-left:3px solid #6f9da3;border-radius:4px;font-size:12px}.route span.active{background:#32677a;border-color:#ffd679;color:#fff7d1;font-weight:900}.help{margin-top:12px;border-top:1px solid #5c9ba6;padding-top:9px;font-size:12px}.help summary{cursor:pointer;font-weight:900}.side-actions{display:flex;gap:7px;margin-top:12px}.side-actions button{flex:1;border:0;border-radius:9px;background:#9dcbd0;color:#1b4356;padding:10px;font-weight:900;cursor:pointer}.side-actions .stop{background:#e89990;color:#472c39}@media(min-width:950px) and (min-height:680px){.runner-page{height:100dvh;min-height:0;overflow:hidden;display:flex;flex-direction:column}.topbar{width:100%;flex:0 0 auto}.layout{width:100%;flex:1;min-height:0;align-items:stretch}.game-panel{display:flex;flex-direction:column;min-height:0}.canvas-wrap{margin:auto 0}.canvas-wrap canvas{max-width:calc((100dvh - 205px)*16/9)}.side-panel{overflow-y:auto}.help{margin-top:auto}}@media(max-width:950px){.layout{grid-template-columns:1fr}.canvas-wrap canvas{max-width:none}.side-panel{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat-grid{grid-row:span 2}.mission{grid-column:1/-1}.route{grid-template-columns:repeat(2,1fr)}.help{grid-column:1/-1}.side-actions{grid-column:1/-1}}@media(max-width:620px){.runner-page{padding:7px}.topbar{display:block}.topbar h1{font-size:26px}.topbar p{font-size:11px}.topbar nav{margin-top:7px;gap:5px}.topbar a{font-size:11px;padding:6px}.stage-head{font-size:11px}.controls{padding:6px;gap:4px}.controls button{min-height:53px;font-size:14px}.controls .gyro-control{min-height:36px}.side-panel{display:block;padding:10px}.mission p{margin:5px 0}.route{display:none}.notice{min-height:0;padding:7px}.overlay-card{padding:9px}.overlay-card h2{font-size:19px}.overlay-card p{font-size:12px;margin:7px 0}.choices button{font-size:12px;padding:7px}}
 </style>
