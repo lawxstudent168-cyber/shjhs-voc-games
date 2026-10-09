@@ -121,6 +121,7 @@ const pathNames = {
   '/game-vocabulary-zoo': '🦁 單字模擬動物園',
   '/game-vocabulary-stairs': '🪜 單字小朋友下樓梯',
   '/game-vocabulary-circus': '🎪 單字馬戲團',
+  '/game-vocabulary-candy': '🍬 單字 Candy Crush',
   '/game-convenience-store': '🏪 單字便利商店',
   '/game-railway-tour': '🚂 單字鐵路旅遊高手',
   '/game-pikavolley-dual': '⚡ 皮卡丘排球（雙人）',
