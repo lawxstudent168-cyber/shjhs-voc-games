@@ -57,6 +57,8 @@ let tiltFiltered = 0;
 let tiltAxis = '';
 let manualLaneUntil = 0;
 let tiltSignalTimer = 0;
+let runnerSprite = null;
+let runnerSpriteReady = false;
 
 const random = array => array[Math.floor(Math.random() * array.length)];
 const clamp = (number, low, high) => Math.max(low, Math.min(high, number));
@@ -327,6 +329,9 @@ async function saveRecord() {
 }
 onMounted(async () => {
   window.addEventListener('keydown', keyDown);
+  runnerSprite = new Image();
+  runnerSprite.onload = () => { runnerSpriteReady = true; };
+  runnerSprite.src = '/images/subway/rear-runner-sprites.png';
   tiltSupported.value = typeof DeviceOrientationEvent !== 'undefined'
     && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   frameId = requestAnimationFrame(tick);
@@ -349,6 +354,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   disposed = true;
+  if (runnerSprite) runnerSprite.onload = null;
   clearTimeout(tiltSignalTimer);
   cancelAnimationFrame(frameId);
   window.removeEventListener('keydown', keyDown);
@@ -449,74 +455,42 @@ function drawObject(ctx, item, p, theme) {
 }
 function drawRunner(ctx, p) {
   if (world.invincible > 0 && Math.floor(world.activeTime * 9) % 2) return;
-  const slide = world.slideTime > 0 && world.jumpHeight < .2;
-  const airborne = world.jumpHeight > .2;
+  const jumping = world.jumpHeight > .15;
+  const sliding = world.slideTime > 0 && !jumping;
+  const switching = Math.abs(world.lane - world.visualLane) > .08;
+  const frame = jumping ? 3 : sliding ? 4 : switching ? 5 : Math.floor(world.activeTime * 10) % 3;
   const lift = world.jumpHeight * 81;
-  const stride = Math.sin(world.activeTime * 13.5);
-  const bounce = slide || airborne ? 0 : Math.abs(stride) * 3.5;
-  const lean = clamp((world.lane - world.visualLane) * .25, -.25, .25);
+  const bob = jumping || sliding ? 0 : Math.abs(Math.sin(world.activeTime * 13)) * 2;
   ctx.save();
-  ctx.fillStyle = '#162c4170';
-  ctx.beginPath(); ctx.ellipse(p.x, p.y + 3, Math.max(17, 38 - lift * .13), 11, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.translate(p.x, p.y - lift - bounce);
-  ctx.rotate(slide ? -.32 : lean);
-  if (slide) ctx.translate(0, 38);
-
-  // A flowing scarf, swinging backpack and articulated limbs give each action a distinct silhouette.
-  ctx.fillStyle = '#f7c966';
-  ctx.beginPath(); ctx.moveTo(12, slide ? -86 : -102);
-  ctx.quadraticCurveTo(51, -113 + stride * 4, 69, -92 + stride * 6);
-  ctx.lineTo(47, -86 + stride * 5); ctx.lineTo(11, slide ? -73 : -92); ctx.fill();
-  ctx.fillStyle = '#5e537e';
-  ctx.beginPath(); ctx.ellipse(21, slide ? -49 : -69, 17, 29, -.17, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#d59662'; ctx.fillRect(26, slide ? -54 : -72, 6, 29);
-
-  const limb = (points, color, width) => {
-    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath(); ctx.moveTo(points[0], points[1]);
-    for (let index = 2; index < points.length; index += 2) ctx.lineTo(points[index], points[index + 1]);
-    ctx.stroke();
-  };
-  const legSwing = airborne ? 13 : stride * 18;
-  const rearFoot = slide ? [13, -7] : airborne ? [26, -16] : [15 + legSwing, -5 + Math.max(0, stride) * 10];
-  const frontFoot = slide ? [-30, -5] : airborne ? [-22, -20] : [-17 - legSwing, -5 + Math.max(0, -stride) * 10];
-  limb([11, slide ? -39 : -49, 17, slide ? -20 : -26, ...rearFoot], '#344861', 15);
-  limb([rearFoot[0] - 7, rearFoot[1] - 1, rearFoot[0] + 12, rearFoot[1] - 1], '#fff0c5', 10);
-  limb([-10, slide ? -39 : -49, -15, slide ? -20 : -27, ...frontFoot], '#263b58', 16);
-  limb([frontFoot[0] - 8, frontFoot[1] - 1, frontFoot[0] + 13, frontFoot[1] - 1], '#f5a76e', 11);
-
-  const bodyTop = slide ? -78 : -91;
-  const bodyBottom = slide ? -38 : -48;
-  const jacket = ctx.createLinearGradient(-24, bodyTop, 22, bodyBottom);
-  jacket.addColorStop(0, '#ff9c82'); jacket.addColorStop(.55, '#ef6375'); jacket.addColorStop(1, '#bb3f68');
-  ctx.fillStyle = jacket;
-  ctx.beginPath(); ctx.moveTo(-18, bodyTop); ctx.quadraticCurveTo(0, bodyTop - 9, 19, bodyTop);
-  ctx.lineTo(23, bodyBottom); ctx.quadraticCurveTo(0, bodyBottom + 8, -22, bodyBottom); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = '#ffdfab'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-7, bodyTop + 6); ctx.lineTo(1, bodyBottom - 2); ctx.stroke();
-  ctx.fillStyle = '#f5c76d'; ctx.fillRect(-17, bodyBottom - 4, 36, 5);
-  const armSwing = airborne ? 16 : stride * 13;
-  limb([18, bodyTop + 8, 29, bodyTop + 23 - armSwing, 22, bodyTop + 42 - armSwing], '#d8506c', 12);
-  limb([22, bodyTop + 42 - armSwing, 19, bodyTop + 48 - armSwing], '#f2c49d', 10);
-  limb([-18, bodyTop + 8, -29, bodyTop + 21 + armSwing, -24, bodyTop + 41 + armSwing], '#dc5a73', 12);
-  limb([-24, bodyTop + 41 + armSwing, -21, bodyTop + 48 + armSwing], '#f2c49d', 10);
-
-  const headY = slide ? -93 : -113;
-  ctx.fillStyle = '#d28d69'; ctx.fillRect(-6, headY + 13, 12, 17);
-  ctx.fillStyle = '#f2caa5'; ctx.beginPath(); ctx.ellipse(0, headY, 20, 23, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#513f53';
-  ctx.beginPath(); ctx.moveTo(-20, headY - 6); ctx.quadraticCurveTo(-24, headY - 30, 0, headY - 31);
-  ctx.quadraticCurveTo(26, headY - 30, 20, headY - 6); ctx.quadraticCurveTo(9, headY - 16, 4, headY - 12);
-  ctx.quadraticCurveTo(-8, headY - 4, -20, headY - 6); ctx.fill();
-  ctx.fillStyle = '#ffe2aa'; ctx.beginPath(); ctx.ellipse(-1, headY - 18, 21, 8, -.08, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#557e9d'; ctx.fillRect(-17, headY - 23, 33, 7);
-  ctx.fillStyle = '#2d4354'; ctx.beginPath(); ctx.arc(-8, headY + 1, 2.3, 0, Math.PI * 2);
-  ctx.arc(8, headY + 1, 2.3, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#a96067'; ctx.lineWidth = 1.8; ctx.beginPath();
-  ctx.arc(0, headY + 7, 5, .1, Math.PI - .1); ctx.stroke();
-  ctx.fillStyle = '#ec9b91'; ctx.beginPath(); ctx.arc(-14, headY + 7, 3, 0, Math.PI * 2);
-  ctx.arc(14, headY + 7, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#142b4377';
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + 3, Math.max(18, 35 - lift * .12), 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (runnerSpriteReady && runnerSprite?.complete) {
+    // Each 512px frame is a full-body rear view. The player always faces the track ahead.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.translate(p.x, p.y - lift - bob);
+    if (switching && world.lane < world.visualLane) ctx.scale(-1, 1);
+    ctx.drawImage(runnerSprite, (frame % 3) * 512, Math.floor(frame / 3) * 512,
+      512, 512, -94, -188, 188, 188);
+  } else {
+    // Keep a rear-facing silhouette while the sprite asset is loading.
+    ctx.translate(p.x, p.y - lift - bob);
+    ctx.fillStyle = '#213b5b';
+    ctx.fillRect(-20, -43, 15, 40); ctx.fillRect(5, -43, 15, 40);
+    ctx.fillStyle = '#f7ead1';
+    ctx.fillRect(-24, -8, 21, 9); ctx.fillRect(4, -8, 21, 9);
+    ctx.fillStyle = '#e96872';
+    ctx.beginPath(); ctx.moveTo(-22, -108); ctx.lineTo(22, -108);
+    ctx.lineTo(25, -43); ctx.lineTo(-25, -43); ctx.fill();
+    ctx.fillStyle = '#287eaf'; ctx.fillRect(-16, -97, 32, 38);
+    ctx.fillStyle = '#333f57'; ctx.beginPath(); ctx.arc(0, -126, 20, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#138c98'; ctx.fillRect(-21, -145, 42, 10);
+  }
   ctx.restore();
 }
+
 </script>
 
 <template>
