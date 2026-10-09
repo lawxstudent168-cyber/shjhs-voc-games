@@ -43,7 +43,7 @@ const nextStation = computed(() => (Math.floor(meters.value / 500) + 1) * 500);
 const historyLink = computed(() => ({ path: '/history', query: { game: GAME } }));
 const leaderboardLink = computed(() => ({ path: '/leaderboard', query: { game: GAME, ...lesson } }));
 const world = { distance: 0, lane: 0, visualLane: 0, jumpHeight: 0, jumpVelocity: 0,
-  slideTime: 0, invincible: 0, activeTime: 0, slowUntil: 0, objects: [], nextWave: 42,
+  slideTime: 0, slideVisual: 0, invincible: 0, dodgeTime: 0, dodgeText: '', activeTime: 0, slowUntil: 0, objects: [], nextWave: 42,
   wave: 0, lastSafeLane: 0, lastStation: 0, nextId: 0, lastFrame: 0 };
 let frameId = 0;
 let startedAt = 0;
@@ -59,12 +59,14 @@ let manualLaneUntil = 0;
 let tiltSignalTimer = 0;
 let runnerSprite = null;
 let runnerSpriteReady = false;
+let slideSprite = null;
+let slideSpriteReady = false;
 
 const random = array => array[Math.floor(Math.random() * array.length)];
 const clamp = (number, low, high) => Math.max(low, Math.min(high, number));
 function resetWorld() {
   Object.assign(world, { distance: 0, lane: 0, visualLane: 0, jumpHeight: 0, jumpVelocity: 0,
-    slideTime: 0, invincible: 1.5, activeTime: 0, slowUntil: 0, objects: [], nextWave: 42,
+    slideTime: 0, slideVisual: 0, invincible: 1.5, dodgeTime: 0, dodgeText: '', activeTime: 0, slowUntil: 0, objects: [], nextWave: 42,
     wave: 0, lastSafeLane: 0, lastStation: 0, nextId: 0, lastFrame: 0 });
   spawnAhead();
 }
@@ -102,12 +104,11 @@ function move(direction) {
 }
 function jump() {
   if (phase.value !== 'playing' || world.jumpHeight > .04 || world.slideTime > 0) return;
-  world.jumpVelocity = 5.2;
+  world.jumpVelocity = 5.8;
 }
 function slide() {
-  if (phase.value !== 'playing') return;
-  if (world.jumpHeight > 0) world.jumpVelocity = -3;
-  world.slideTime = 1.35;
+  if (phase.value !== 'playing' || world.jumpHeight > .04) return;
+  world.slideTime = 1.55;
 }
 function togglePause() {
   if (phase.value === 'playing') { phase.value = 'paused'; notice.value = '遊戲已暫停。'; }
@@ -272,18 +273,23 @@ function advance(dt) {
   meters.value = Math.floor(world.distance);
   world.visualLane += (world.lane - world.visualLane) * Math.min(1, dt * 12);
   world.jumpHeight = Math.max(0, world.jumpHeight + world.jumpVelocity * dt);
-  world.jumpVelocity -= 8.5 * dt;
+  world.jumpVelocity -= 7 * dt;
   if (world.jumpHeight <= 0) { world.jumpHeight = 0; world.jumpVelocity = 0; }
   world.slideTime = Math.max(0, world.slideTime - dt);
+  world.slideVisual += ((world.slideTime > 0 ? 1 : 0) - world.slideVisual) * Math.min(1, dt * 25);
   world.invincible = Math.max(0, world.invincible - dt);
+  world.dodgeTime = Math.max(0, world.dodgeTime - dt);
   spawnAhead();
   for (const item of world.objects) {
     if (item.passed || item.at > world.distance) continue;
     item.passed = true;
     if (item.lane !== world.lane) continue;
     if (['coin', 'ticket', 'shield'].includes(item.type)) collect(item);
-    else if (item.type === 'train' || (item.type === 'barrier' && world.jumpHeight < .38)
-      || (item.type === 'sign' && world.slideTime <= 0)) hit(item.type);
+    else if (item.type === 'barrier' && world.jumpHeight >= 1.2) {
+      world.dodgeText = '躍過路障！'; world.dodgeTime = .85; bonus.value += 15;
+    } else if (item.type === 'sign' && world.slideTime > 0 && world.slideVisual >= .85) {
+      world.dodgeText = '滑過標誌！'; world.dodgeTime = .85; bonus.value += 15;
+    } else hit(item.type);
     if (phase.value !== 'playing') break;
   }
   world.objects = world.objects.filter(item => item.at > world.distance - 8);
@@ -332,6 +338,9 @@ onMounted(async () => {
   runnerSprite = new Image();
   runnerSprite.onload = () => { runnerSpriteReady = true; };
   runnerSprite.src = '/images/subway/rear-runner-sprites.png';
+  slideSprite = new Image();
+  slideSprite.onload = () => { slideSpriteReady = true; };
+  slideSprite.src = '/images/subway/rear-runner-slide.png';
   tiltSupported.value = typeof DeviceOrientationEvent !== 'undefined'
     && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   frameId = requestAnimationFrame(tick);
@@ -355,6 +364,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   disposed = true;
   if (runnerSprite) runnerSprite.onload = null;
+  if (slideSprite) slideSprite.onload = null;
   clearTimeout(tiltSignalTimer);
   cancelAnimationFrame(frameId);
   window.removeEventListener('keydown', keyDown);
@@ -395,12 +405,27 @@ function draw() {
   ctx.fillStyle = '#2e5066'; ctx.fillRect(332, 130, 296, 31);
   ctx.fillStyle = '#fff0ca'; ctx.font = '900 18px system-ui'; ctx.textAlign = 'center';
   ctx.fillText(theme.name, WIDTH / 2, 153); ctx.textAlign = 'start';
+  const closeObstacles = [];
   for (const item of [...world.objects].sort((a, b) => b.at - a.at)) {
     const depth = item.at - world.distance;
     if (depth < -4 || depth > VIEW_DISTANCE) continue;
+    if (depth < 6 && ['train', 'barrier', 'sign'].includes(item.type)) {
+      closeObstacles.push(item);
+      continue;
+    }
     drawObject(ctx, item, project(item.lane, depth), theme);
   }
   drawRunner(ctx, project(world.visualLane, 0));
+  for (const item of closeObstacles) drawObject(ctx, item, project(item.lane, item.at - world.distance), theme);
+  if (world.dodgeTime > 0) {
+    const p = project(world.visualLane, 0);
+    ctx.save(); ctx.globalAlpha = Math.min(1, world.dodgeTime * 2);
+    ctx.font = '900 22px system-ui'; ctx.textAlign = 'center';
+    ctx.lineWidth = 5; ctx.strokeStyle = '#214f62'; ctx.fillStyle = '#fff6b9';
+    ctx.strokeText(world.dodgeText, p.x, 285 - (1 - world.dodgeTime) * 18);
+    ctx.fillText(world.dodgeText, p.x, 285 - (1 - world.dodgeTime) * 18);
+    ctx.restore();
+  }
   ctx.fillStyle = '#193950b8'; ctx.fillRect(14, 12, 308, 75);
   ctx.fillStyle = '#fff'; ctx.font = '900 21px system-ui';
   ctx.fillText(`🏃 ${Math.floor(world.distance)} m`, 28, 41);
@@ -409,7 +434,7 @@ function draw() {
   ctx.fillStyle = '#fff'; ctx.font = '900 19px system-ui';
   ctx.fillText(`♥ ${lives.value}　🛡 ${shields.value}`, WIDTH - 177, 46);
   const warning = world.objects.find(item => !item.passed && item.lane === world.lane
-    && ['train', 'barrier', 'sign'].includes(item.type) && item.at - world.distance < 18 && item.at > world.distance);
+    && ['train', 'barrier', 'sign'].includes(item.type) && item.at - world.distance < 14 && item.at > world.distance);
   if (warning) {
     ctx.fillStyle = '#fff0bf'; ctx.fillRect(WIDTH / 2 - 95, 96, 190, 34);
     ctx.fillStyle = '#743f43'; ctx.font = '900 17px system-ui'; ctx.textAlign = 'center';
@@ -454,29 +479,39 @@ function drawObject(ctx, item, p, theme) {
   ctx.restore();
 }
 function drawRunner(ctx, p) {
-  if (world.invincible > 0 && Math.floor(world.activeTime * 9) % 2) return;
   const jumping = world.jumpHeight > .15;
-  const sliding = world.slideTime > 0 && !jumping;
+  const sliding = world.slideVisual > .15 && !jumping;
   const switching = Math.abs(world.lane - world.visualLane) > .08;
-  const frame = jumping ? 3 : sliding ? 4 : switching ? 5 : Math.floor(world.activeTime * 10) % 3;
-  const lift = world.jumpHeight * 81;
+  const frame = jumping ? 3 : sliding ? 4 : switching ? 5 : Math.floor(world.activeTime * 7) % 3;
+  const lift = world.jumpHeight * 65;
   const bob = jumping || sliding ? 0 : Math.abs(Math.sin(world.activeTime * 13)) * 2;
   ctx.save();
   ctx.fillStyle = '#142b4377';
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + 3, Math.max(18, 35 - lift * .12), 10, 0, 0, Math.PI * 2);
   ctx.fill();
+  if (world.invincible > 0) {
+    ctx.strokeStyle = '#b9f6ff'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y - 1, 41, 14, 0, 0, Math.PI * 2); ctx.stroke();
+  }
   if (runnerSpriteReady && runnerSprite?.complete) {
     // Each 512px frame is a full-body rear view. The player always faces the track ahead.
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.translate(p.x, p.y - lift - bob);
     if (switching && world.lane < world.visualLane) ctx.scale(-1, 1);
-    ctx.drawImage(runnerSprite, (frame % 3) * 512, Math.floor(frame / 3) * 512,
-      512, 512, -94, -188, 188, 188);
+    if (sliding && slideSpriteReady && slideSprite?.complete) {
+      const slideHeight = 188 - 63 * world.slideVisual;
+      ctx.drawImage(slideSprite, -94, -188 + 76 * world.slideVisual, 188, slideHeight);
+    } else {
+      ctx.scale(1, 1 - .42 * world.slideVisual);
+      ctx.drawImage(runnerSprite, (frame % 3) * 512, Math.floor(frame / 3) * 512,
+        512, 512, -94, -188, 188, 188);
+    }
   } else {
     // Keep a rear-facing silhouette while the sprite asset is loading.
     ctx.translate(p.x, p.y - lift - bob);
+    ctx.scale(1, 1 - .42 * world.slideVisual);
     ctx.fillStyle = '#213b5b';
     ctx.fillRect(-20, -43, 15, 40); ctx.fillRect(5, -43, 15, 40);
     ctx.fillStyle = '#f7ead1';
