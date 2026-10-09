@@ -482,9 +482,12 @@ function drawRunner(ctx, p) {
   const jumping = world.jumpHeight > .15;
   const sliding = world.slideVisual > .15 && !jumping;
   const switching = Math.abs(world.lane - world.visualLane) > .08;
-  const frame = jumping ? 3 : sliding ? 4 : switching ? 5 : Math.floor(world.activeTime * 7) % 3;
+  // The three generated running frames have slightly different silhouettes.
+  // Keep one consistent rear view while running, with continuous motion instead of hard frame cuts.
+  const frame = jumping ? 3 : sliding ? 4 : switching ? 5 : 0;
   const lift = world.jumpHeight * 65;
-  const bob = jumping || sliding ? 0 : Math.abs(Math.sin(world.activeTime * 13)) * 2;
+  const gait = jumping || sliding ? 0 : Math.sin(world.activeTime * 14);
+  const bob = jumping || sliding ? 0 : (1 - Math.cos(world.activeTime * 14)) * 1.2;
   ctx.save();
   ctx.fillStyle = '#142b4377';
   ctx.beginPath();
@@ -498,7 +501,8 @@ function drawRunner(ctx, p) {
     // Each 512px frame is a full-body rear view. The player always faces the track ahead.
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.translate(p.x, p.y - lift - bob);
+    ctx.translate(p.x + gait * 1.2, p.y - lift - bob);
+    if (!jumping && !sliding && !switching) ctx.rotate(gait * .018);
     if (switching && world.lane < world.visualLane) ctx.scale(-1, 1);
     if (sliding && slideSpriteReady && slideSprite?.complete) {
       const slideHeight = 188 - 63 * world.slideVisual;
@@ -510,7 +514,7 @@ function drawRunner(ctx, p) {
     }
   } else {
     // Keep a rear-facing silhouette while the sprite asset is loading.
-    ctx.translate(p.x, p.y - lift - bob);
+    ctx.translate(p.x + gait * 1.2, p.y - lift - bob);
     ctx.scale(1, 1 - .42 * world.slideVisual);
     ctx.fillStyle = '#213b5b';
     ctx.fillRect(-20, -43, 15, 40); ctx.fillRect(5, -43, 15, 40);
