@@ -153,6 +153,7 @@ const exportToCSV = () => {
         <button class="type-btn" :class="{ active: selectedGameType === '單字小朋友下樓梯' }" @click="selectedGameType = '單字小朋友下樓梯'">🪜 小朋友下樓梯</button>
         <button class="type-btn" :class="{ active: selectedGameType === '單字馬戲團' }" @click="selectedGameType = '單字馬戲團'">🎪 單字馬戲團</button>
         <button class="type-btn" :class="{ active: selectedGameType === '單字Candy Crush' }" @click="selectedGameType = '單字Candy Crush'">🍬 單字 Candy Crush</button>
+        <button class="type-btn" :class="{ active: selectedGameType === '單字地鐵跑酷' }" @click="selectedGameType = '單字地鐵跑酷'">🚇 地鐵跑酷</button>
         <button class="type-btn" :class="{ active: selectedGameType === '單字便利商店' }" @click="selectedGameType = '單字便利商店'">🏪 便利商店</button>
         <button class="type-btn" :class="{ active: selectedGameType === '單字西洋棋' }" @click="selectedGameType = '單字西洋棋'">♔ 西洋棋</button>
         <button class="type-btn" :class="{ active: selectedGameType === '單字圍棋' }" @click="selectedGameType = '單字圍棋'">⚫ 圍棋</button>

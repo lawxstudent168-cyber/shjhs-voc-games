@@ -31,6 +31,7 @@ const gamesList = [
   { id: 'vocabularyStairs', name: '🪜 單字小朋友下樓梯' },
   { id: 'vocabularyCircus', name: '🎪 單字馬戲團' },
   { id: 'vocabularyCandy', name: '🍬 單字 Candy Crush' },
+  { id: 'vocabularySubway', name: '🚇 單字地鐵跑酷' },
   { id: 'convenienceStore', name: '🏪 單字便利商店' },
   { id: 'go', name: '⚫ 單字圍棋' },
   { id: 'xiangqi', name: '帥 單字象棋' },

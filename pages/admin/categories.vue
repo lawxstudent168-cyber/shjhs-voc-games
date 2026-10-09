@@ -16,6 +16,7 @@ const allGames = [
   { id: 'vocabularyStairs', name: '🪜 單字小朋友下樓梯' },
   { id: 'vocabularyCircus', name: '🎪 單字馬戲團' },
   { id: 'vocabularyCandy', name: '🍬 單字 Candy Crush' },
+  { id: 'vocabularySubway', name: '🚇 單字地鐵跑酷' },
   { id: 'convenienceStore', name: '🏪 單字便利商店' },
   { id: 'go', name: '⚫ 單字圍棋' },
   { id: 'xiangqi', name: '帥 單字象棋' },
@@ -103,6 +104,10 @@ onMounted(async () => {
     if (categories.value.length && !categories.value.some(cat => cat.games?.includes('vocabularyCandy'))) {
       const arcade = categories.value.find(cat => cat.games?.includes('tetris')) || categories.value[0];
       arcade.games = [...(arcade.games || []), 'vocabularyCandy'];
+    }
+    if (categories.value.length && !categories.value.some(cat => cat.games?.includes('vocabularySubway'))) {
+      const arcade = categories.value.find(cat => cat.games?.includes('tetris')) || categories.value[0];
+      arcade.games = [...(arcade.games || []), 'vocabularySubway'];
     }
     if (categories.value.length && !categories.value.some(cat => cat.games?.includes('alchemyAtelier'))) {
       categories.value[0].games = [...(categories.value[0].games || []), 'alchemyAtelier'];
